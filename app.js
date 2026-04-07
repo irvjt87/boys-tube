@@ -38,19 +38,31 @@ function onYouTubeIframeAPIReady() {
     player = new YT.Player('video-player', {
         height: '360',
         width: '640',
-        host: 'https://www.youtube-nocookie.com', // Bypasses trackers/blocks
+        host: 'https://www.youtube-nocookie.com',
         playerVars: {
             'autoplay': 0,
-            'rel': 0,               // No related videos from other channels
-            'modestbranding': 1,    // Hide YT logo
-            'playsinline': 1,       // Stay in PWA, don't go full screen on iOS
-            'iv_load_policy': 3,    // Hide annotations
+            'rel': 0,
+            'modestbranding': 1,
+            'playsinline': 1,
+            'iv_load_policy': 3,
             'enablejsapi': 1
         },
         events: {
-            'onStateChange': onPlayerStateChange
+            'onStateChange': onPlayerStateChange,
+            'onError': onPlayerError // Add this line
         }
     });
+}
+
+// Add this new function to handle restricted videos
+function onPlayerError(event) {
+    // 101 and 150 are the codes for "Embedding disabled by owner"
+    if (event.data === 101 || event.data === 150) {
+        console.warn("This video is restricted. Closing player to prevent exit.");
+        playerContainer.style.display = 'none';
+        player.stopVideo();
+        alert("This specific video is locked by the owner and cannot play in the sandbox.");
+    }
 }
 
 // 3. Close player when video ends (The "Leak" Fix)

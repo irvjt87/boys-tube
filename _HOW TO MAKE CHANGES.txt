@@ -1,10 +1,8 @@
-3. Workflow Optimization
-From this point forward, do not touch the GitHub website or the Netlify dashboard. Use your PowerShell terminal for every update:
-
 Make your change in VS Code/Notepad.
+In Powershell:
 
 git add .
 
-git commit -m "Tweak shield height"
+git commit -m "Handle Restricted Videos"
 
-git push
+git push -force
