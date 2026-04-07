@@ -1,62 +1,155 @@
 const API_KEY = 'AIzaSyDm-xk-2x0bDbW0FikDJDBMYT5t33QA6BQ';
 
-// Hardcode the allowed channel IDs here. 
-// Example: UCp68_L633868... is Mark Rober
 const ALLOWED_CHANNELS = [
-    'UCfpCQ89W9wjkHc8J_6eTbBg',   //Outdoor Boys
-    'UCNIFiHaLZkYASaWDdkC1njg',   //Duck Dynasty
-    'UCiLW00N3_Qe5yazpDk8xxjA',   //Outdoor Tom
-    'UCEDp4UbPxHjGT7B1cRZXt_w',   //Shotgun Scientists
-    'UCs7ywDt1v4zHhn7sfCao-lQ',   //Sam Eckholm
-    'UCzWn_gTaXyH5Idyo8Raf7_A',   //Catfish and Carp
-    'UCfU5tYD7fuHC9E4DaxsTH-g',   //Stalekracker Official
-    'UCHstNaT6R-1zA0lBU_XBr_Q',   //Marines
-    '' // Add as many as you want
+    { id: 'UUfpCQ89W9wjkHc8J_6eTbBg', name: 'Outdoor Boys' },
+    { id: 'UUhijzGy18QVAsDukb3Qu6EA', name: 'Prager U Kids' },
+    { id: 'UUiLW00N3_Qe5yazpDk8xxjA', name: 'Outdoor Tom' },
+    { id: 'UUIMXKin1fXXCeq2UJePJEog', name: 'My Self Reliance' },
+    { id: 'UUNepEAWZH0TBu7dkxIbluDw', name: 'Dad, How Do I?' },
+    { id: 'UUq0fxytZwEYul4AmfEiXL_w', name: 'Zen Garden Oasis'},
+    { id: 'UUs7ywDt1v4zHhn7sfCao-lQ', name: 'Sam Eckholm' },
+    { id: 'UUShDR6hPfOqyUjMbasOrb8w', name: 'Warrior Kids' },
+    { id: 'UUzWn_gTaXyH5Idyo8Raf7_A', name: 'Catfish and Carp' },
+    { id: 'UU8H3lzJU5Qm-s3WVroB87kw', name: 'AWMI'},
+    { id: 'UU8TdKeCw11lF9QYX33wmWeQ', name: 'Rick McFarland - River Rock'},
+    { id: 'UUmPBWknVW9b4oCkgtqnfCyA', name: 'Greg Mohr'},
+    { id: 'UUPfldVy-GUtV-0n7n9v_xhg', name: 'Keith Moore Faith Life' },
+    { id: 'UUsljKOcYKll4vQmvPOsovkQ', name: 'Charis'},
+    { id: 'UUxrLpZPsYKvE7qSiULRaT7g', name: 'GTN'},
+    { id: 'UUZA2cbFAHOcwY3V1T6tLfYQ', name: 'Barry Bennett'},
+    { id: 'UU9tPS5igk3NOyDP0XLX96bw', name: 'Duck Dynasty' },
+    { id: 'UUEDp4UbPxHjGT7B1cRZXt_w', name: 'Shotgun Scientists' },
+    { id: 'UUfU5tYD7fuHC9E4DaxsTH-g', name: 'Stalekracker' },
+    { id: 'UUHstNaT6R-1zA0lBU_XBr_Q', name: 'Marines' }
 ];
 
 const videoList = document.getElementById('video-list');
-const player = document.getElementById('video-player');
+const playerContainer = document.getElementById('player-container');
+let player; // Global variable for the API player
 
-async function fetchAllowedVideos() {
-    let allVideos = [];
+// 1. Load YouTube IFrame API
+const tag = document.createElement('script');
+tag.src = "https://www.youtube.com/iframe_api";
+const firstScriptTag = document.getElementsByTagName('script')[0];
+firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
 
-    // Loop through each allowed channel and get their latest videos
-    for (const channelId of ALLOWED_CHANNELS) {
-        const url = `https://www.googleapis.com/youtube/v3/search?key=${API_KEY}&channelId=${channelId}&part=snippet,id&order=date&maxResults=10`;
-        
-        const response = await fetch(url);
-        const data = await response.json();
-        
-        if (data.items) {
-            allVideos.push(...data.items.filter(item => item.id.videoId));
+// 2. Initialize Player
+function onYouTubeIframeAPIReady() {
+    player = new YT.Player('video-player', {
+        height: '360',
+        width: '640',
+        host: 'https://www.youtube-nocookie.com', // Bypasses trackers/blocks
+        playerVars: {
+            'autoplay': 0,
+            'rel': 0,               // No related videos from other channels
+            'modestbranding': 1,    // Hide YT logo
+            'playsinline': 1,       // Stay in PWA, don't go full screen on iOS
+            'iv_load_policy': 3,    // Hide annotations
+            'enablejsapi': 1
+        },
+        events: {
+            'onStateChange': onPlayerStateChange
         }
-    }
-
-    renderVideos(allVideos);
+    });
 }
 
-function renderVideos(videos) {
-    videoList.innerHTML = ''; // Clear loading state
+// 3. Close player when video ends (The "Leak" Fix)
+function onPlayerStateChange(event) {
+    if (event.data === YT.PlayerState.ENDED) {
+        playerContainer.style.display = 'none';
+        player.stopVideo();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+}
+
+// 4. Show Home (Channel Folders)
+function showHome() {
+    playerContainer.style.display = 'none';
+    if (player) player.stopVideo();
+    
+    document.querySelector('h2').innerText = "Pick a Channel";
+    videoList.innerHTML = '';
+
+    ALLOWED_CHANNELS.forEach(channel => {
+        const folder = document.createElement('div');
+        folder.className = 'video-card';
+        
+        // Zero-cost thumbnail trick
+        const folderThumb = `https://i.ytimg.com/vi/${channel.id.replace('UU', '')}/mqdefault.jpg`;
+
+        folder.innerHTML = `
+            <div style="position:relative;">
+                <img class="video-thumb" src="${folderThumb}" style="border: 3px solid #333; filter: brightness(0.7);">
+                <div style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); font-weight:bold; font-size:18px; text-shadow: 2px 2px 4px #000;">OPEN</div>
+            </div>
+            <div class="video-title" style="text-align:center; font-weight:bold; padding: 10px 0;">${channel.name}</div>
+        `;
+        
+        folder.onclick = () => fetchChannelVideos(channel.id, channel.name);
+        videoList.appendChild(folder);
+    });
+}
+
+// 5. Fetch Channel Videos (1 API unit)
+async function fetchChannelVideos(playlistId, name) {
+    const cacheKey = `cache_${playlistId}`;
+    const cachedData = localStorage.getItem(cacheKey);
+    const cacheTime = localStorage.getItem(`${cacheKey}_time`);
+
+    // If data exists and is less than 4 hours old, use it (0 API Units)
+    if (cachedData && cacheTime && (Date.now() - cacheTime < 14400000)) {
+        console.log(`Loading ${name} from local cache...`);
+        renderChannelView(JSON.parse(cachedData), name);
+        return;
+    }
+
+    // Otherwise, call the API (1 API Unit)
+    videoList.innerHTML = `<p style="padding:20px;">Opening ${name}...</p>`;
+    const url = `https://www.googleapis.com/youtube/v3/playlistItems?key=${API_KEY}&playlistId=${playlistId}&part=snippet&maxResults=50`;
+    
+    try {
+        const response = await fetch(url);
+        const data = await response.json();
+        if (data.items) {
+            localStorage.setItem(cacheKey, JSON.stringify(data.items));
+            localStorage.setItem(`${cacheKey}_time`, Date.now());
+            renderChannelView(data.items, name);
+        }
+    } catch (e) {
+        videoList.innerHTML = '<p style="padding:20px;">Error loading videos.</p>';
+    }
+}
+
+// 6. Grid View
+function renderChannelView(videos, name) {
+    document.querySelector('h2').innerHTML = `<span onclick="showHome()" style="color:#3498db; cursor:pointer;">← Back</span> | ${name}`;
+    videoList.innerHTML = '';
+    
     videos.forEach(video => {
+        const videoId = video.snippet.resourceId.videoId;
         const card = document.createElement('div');
         card.className = 'video-card';
         card.innerHTML = `
-            <img class="video-thumb" src="${video.snippet.thumbnails.medium.url}" alt="thumbnail">
-            <p style="font-size: 14px;">${video.snippet.title}</p>
+            <img class="video-thumb" src="${video.snippet.thumbnails.medium.url}">
+            <div class="video-title">${video.snippet.title}</div>
         `;
-        
-        // When clicked, load the video into the player with strict parameters
-        card.onclick = () => playVideo(video.id.videoId);
+        card.onclick = () => playVideo(videoId);
         videoList.appendChild(card);
     });
 }
 
+// 7. Play Video via API (The "Black Box" Fix)
 function playVideo(videoId) {
-    // rel=0 ensures if videos end, it only suggests videos from the SAME channel
-    // modestbranding=1 removes the YouTube logo
-    player.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&rel=0&modestbranding=1`;
-    window.scrollTo(0, 0); // Scroll up to the player
+    playerContainer.style.display = 'block';
+    
+    // Using loadVideoById is much safer than changing .src 
+    // as it prevents the playlist "drawer" from rendering.
+    player.loadVideoById({
+        videoId: videoId,
+        suggestedQuality: 'hd720'
+    });
+
+    window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
-// Start the app
-fetchAllowedVideos();
+showHome();
