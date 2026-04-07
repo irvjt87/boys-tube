@@ -2,11 +2,15 @@ const API_KEY = 'AIzaSyDm-xk-2x0bDbW0FikDJDBMYT5t33QA6BQ';
 
 const ALLOWED_CHANNELS = [
     { id: 'UUfpCQ89W9wjkHc8J_6eTbBg', name: 'Outdoor Boys' },
-    { id: 'UUhijzGy18QVAsDukb3Qu6EA', name: 'Prager U Kids' },
     { id: 'UUiLW00N3_Qe5yazpDk8xxjA', name: 'Outdoor Tom' },
     { id: 'UUIMXKin1fXXCeq2UJePJEog', name: 'My Self Reliance' },
     { id: 'UUNepEAWZH0TBu7dkxIbluDw', name: 'Dad, How Do I?' },
-    { id: 'UUq0fxytZwEYul4AmfEiXL_w', name: 'Zen Garden Oasis'},
+    { id: 'UUq0fxytZwEYul4AmfEiXL_w', name: 'Zen Garden Oasis' },
+    { id: 'PLU6AbyBWHPOtBBMOm7HwK2dEvGkrnpZvy', name: 'Prager-Trailblazers' },
+    { id: 'PLU6AbyBWHPOsDaw5dQ4VVNVlhWKe0MaCx', name: 'Prager-Hustle' },
+    { id: 'PLU6AbyBWHPOuH5OQLqaSi2xZqth4WTW_c', name: 'Prager-History' },
+    { id: 'PLU6AbyBWHPOsqu6Oylcqp0GoOdAAETK72', name: 'Prager-U.S.Citizenship' },
+    { id: 'PLU6AbyBWHPOvJNhiuJ2oKLOg77Udus7Fs', name: 'Prager-Cash Course' },
     { id: 'UUs7ywDt1v4zHhn7sfCao-lQ', name: 'Sam Eckholm' },
     { id: 'UUShDR6hPfOqyUjMbasOrb8w', name: 'Warrior Kids' },
     { id: 'UUzWn_gTaXyH5Idyo8Raf7_A', name: 'Catfish and Carp' },
@@ -45,11 +49,13 @@ function onYouTubeIframeAPIReady() {
             'modestbranding': 1,
             'playsinline': 1,
             'iv_load_policy': 3,
-            'enablejsapi': 1
+            'enablejsapi': 1,
+            // REQUIRED FOR BRAVE: Explicitly define the origin
+            'origin': window.location.origin 
         },
         events: {
             'onStateChange': onPlayerStateChange,
-            'onError': onPlayerError // Add this line
+            'onError': onPlayerError
         }
     });
 }
@@ -117,7 +123,7 @@ async function fetchChannelVideos(playlistId, name) {
 
     // Otherwise, call the API (1 API Unit)
     videoList.innerHTML = `<p style="padding:20px;">Opening ${name}...</p>`;
-    const url = `https://www.googleapis.com/youtube/v3/playlistItems?key=${API_KEY}&playlistId=${playlistId}&part=snippet&maxResults=50`;
+    const url = `https://www.googleapis.com/youtube/v3/playlistItems?key=${API_KEY}&playlistId=${playlistId}&part=snippet&maxResults=100`;
     
     try {
         const response = await fetch(url);
@@ -137,7 +143,20 @@ function renderChannelView(videos, name) {
     document.querySelector('h2').innerHTML = `<span onclick="showHome()" style="color:#3498db; cursor:pointer;">← Back</span> | ${name}`;
     videoList.innerHTML = '';
     
-    videos.forEach(video => {
+    // Logic Gate: Filter out videos that are likely Shorts
+    const filteredVideos = videos.filter(video => {
+        const title = video.snippet.title.toLowerCase();
+        const description = video.snippet.description.toLowerCase();
+        
+        // Filter out by keywords (Cost: 0 Units)
+        const isShortKeyword = title.includes('#shorts') || 
+                             title.includes('shorts') || 
+                             description.includes('#shorts');
+        
+        return !isShortKeyword;
+    });
+
+    filteredVideos.forEach(video => {
         const videoId = video.snippet.resourceId.videoId;
         const card = document.createElement('div');
         card.className = 'video-card';

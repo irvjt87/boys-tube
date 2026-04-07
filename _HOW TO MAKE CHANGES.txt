@@ -3,6 +3,6 @@ In Powershell:
 
 git add .
 
-git commit -m "Handle Restricted Videos"
+git commit -m "Boys-Tube Update"
 
-git push -force
+git push --force
