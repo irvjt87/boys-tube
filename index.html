@@ -21,7 +21,6 @@
             padding-top: calc(env(safe-area-inset-top) + 10px); 
         }
 
-        /* 1. Added display:none and position:relative */
         #player-container { 
             display: none; 
             position: relative; 
@@ -34,7 +33,35 @@
             box-shadow: 0 4px 15px rgba(0,0,0,0.5);
         }
 
-        /* 2. The invisible wall that blocks "Watch on YouTube" clicks */
+        /* NEW: The Pseudo-Fullscreen State */
+        #player-container.active {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 999;
+            border-radius: 0;
+            margin: 0;
+            aspect-ratio: auto; /* Kill 16/9 to fill screen */
+        }
+
+        /* NEW: The Back Button Overlay Style */
+        .back-btn-overlay {
+            position: fixed;
+            top: calc(env(safe-area-inset-top) + 10px);
+            left: 10px;
+            z-index: 1000;
+            background: rgba(0, 0, 0, 0.8);
+            color: #3498db;
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-weight: bold;
+            cursor: pointer;
+            display: none; /* Controlled by app.js */
+            border: 1px solid #333;
+        }
+
         .header-shield {
             position: absolute;
             top: 0;
@@ -45,15 +72,14 @@
             background: transparent;
         }
     
-        /* This blocks clicks on the bottom-right YouTube logo */
         .corner-shield {
             position: absolute;
             bottom: 0;
             right: 0;
-            width: 80px;  /* Covers the logo area */
-            height: 50px; /* Covers the logo area */
+            width: 80px; 
+            height: 50px; 
             z-index: 10;
-            background: transparent; /* Keep it invisible */
+            background: transparent;
             cursor: default;
         }
 
@@ -107,6 +133,7 @@
         <div class="corner-shield"></div>
         <div id="video-player"></div>
     </div>
+
     <div id="back-btn" class="back-btn-overlay" onclick="showHome()">← Back</div>
 
     <h2>Pick a Channel</h2>

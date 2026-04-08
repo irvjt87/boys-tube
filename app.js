@@ -29,7 +29,7 @@ const ALLOWED_CHANNELS = [
 
 const videoList = document.getElementById('video-list');
 const playerContainer = document.getElementById('player-container');
-let player; // Global variable for the API player
+let player; 
 
 // 1. Load YouTube IFrame API
 const tag = document.createElement('script');
@@ -45,13 +45,13 @@ function onYouTubeIframeAPIReady() {
         host: 'https://www.youtube-nocookie.com',
         playerVars: {
             'autoplay': 0,
-            'rel': 0,               // Same channel only
-            'modestbranding': 1,    // Removes large YT logo
-            'playsinline': 1,       // CRITICAL: Prevents iOS from hijacking to native player
-            'fs': 0,                // THE LOCK: Disables the Full Screen button entirely
-            'iv_load_policy': 3,    // Hides annotations
+            'rel': 0,
+            'modestbranding': 1,
+            'playsinline': 1, 
+            'fs': 0,          
+            'iv_load_policy': 3,
             'enablejsapi': 1,
-            'origin': window.location.origin // Fixes Brave/Safari handshake
+            'origin': window.location.origin 
         },
         events: {
             'onStateChange': onPlayerStateChange,
@@ -60,29 +60,29 @@ function onYouTubeIframeAPIReady() {
     });
 }
 
-// Add this new function to handle restricted videos
 function onPlayerError(event) {
-    // 101 and 150 are the codes for "Embedding disabled by owner"
     if (event.data === 101 || event.data === 150) {
-        console.warn("This video is restricted. Closing player to prevent exit.");
         playerContainer.style.display = 'none';
         player.stopVideo();
-        alert("This specific video is locked by the owner and cannot play in the sandbox.");
+        alert("This video is locked and cannot play in the sandbox.");
     }
 }
 
-// 3. Close player when video ends (The "Leak" Fix)
 function onPlayerStateChange(event) {
     if (event.data === YT.PlayerState.ENDED) {
-        playerContainer.style.display = 'none';
-        player.stopVideo();
-        window.scrollTo({ top: 0, behavior: 'smooth' });
+        // Automatically run showHome to reset UI when video ends
+        showHome();
     }
 }
 
-// 4. Show Home (Channel Folders)
+// 4. Show Home (Consolidated and Corrected)
 function showHome() {
+    // Return UI to normal
+    playerContainer.classList.remove('active');
     playerContainer.style.display = 'none';
+    const backBtn = document.getElementById('back-btn');
+    if (backBtn) backBtn.style.display = 'none';
+    
     if (player) player.stopVideo();
     
     document.querySelector('h2').innerText = "Pick a Channel";
@@ -92,8 +92,15 @@ function showHome() {
         const folder = document.createElement('div');
         folder.className = 'video-card';
         
-        // Zero-cost thumbnail trick
-        const folderThumb = `https://i.ytimg.com/vi/${channel.id.replace('UU', '')}/mqdefault.jpg`;
+        // REVISED Logic: Using a reliable placeholder if it's a playlist (PL)
+        // because PL IDs cannot be converted to Video Thumbnails via string hacking.
+        let folderThumb;
+        if (channel.id.startsWith('UU')) {
+            folderThumb = `https://i.ytimg.com/vi/${channel.id.replace('UU', '')}/mqdefault.jpg`;
+        } else {
+            // Curated Playlists (PL) get a generic Prager icon or a static fallback
+            folderThumb = 'https://i.ytimg.com/vi/38pP0_Z-kMw/mqdefault.jpg'; // Example static thumb
+        }
 
         folder.innerHTML = `
             <div style="position:relative;">
@@ -108,22 +115,19 @@ function showHome() {
     });
 }
 
-// 5. Fetch Channel Videos (1 API unit)
+// 5. Fetch Channel Videos (Caching included)
 async function fetchChannelVideos(playlistId, name) {
     const cacheKey = `cache_${playlistId}`;
     const cachedData = localStorage.getItem(cacheKey);
     const cacheTime = localStorage.getItem(`${cacheKey}_time`);
 
-    // If data exists and is less than 4 hours old, use it (0 API Units)
     if (cachedData && cacheTime && (Date.now() - cacheTime < 14400000)) {
-        console.log(`Loading ${name} from local cache...`);
         renderChannelView(JSON.parse(cachedData), name);
         return;
     }
 
-    // Otherwise, call the API (1 API Unit)
     videoList.innerHTML = `<p style="padding:20px;">Opening ${name}...</p>`;
-    const url = `https://www.googleapis.com/youtube/v3/playlistItems?key=${API_KEY}&playlistId=${playlistId}&part=snippet&maxResults=100`;
+    const url = `https://www.googleapis.com/youtube/v3/playlistItems?key=${API_KEY}&playlistId=${playlistId}&part=snippet&maxResults=50`;
     
     try {
         const response = await fetch(url);
@@ -143,17 +147,10 @@ function renderChannelView(videos, name) {
     document.querySelector('h2').innerHTML = `<span onclick="showHome()" style="color:#3498db; cursor:pointer;">← Back</span> | ${name}`;
     videoList.innerHTML = '';
     
-    // Logic Gate: Filter out videos that are likely Shorts
     const filteredVideos = videos.filter(video => {
         const title = video.snippet.title.toLowerCase();
         const description = video.snippet.description.toLowerCase();
-        
-        // Filter out by keywords (Cost: 0 Units)
-        const isShortKeyword = title.includes('#shorts') || 
-                             title.includes('shorts') || 
-                             description.includes('#shorts');
-        
-        return !isShortKeyword;
+        return !(title.includes('shorts') || description.includes('#shorts'));
     });
 
     filteredVideos.forEach(video => {
@@ -169,14 +166,15 @@ function renderChannelView(videos, name) {
     });
 }
 
-// 7. Play Video via API (The "Black Box" Fix)
+// 7. Play Video (Pseudo-fullscreen included)
 function playVideo(videoId) {
     if (!player || typeof player.loadVideoById !== 'function') return;
 
-    // Maximize the player
     playerContainer.classList.add('active');
     playerContainer.style.display = 'block';
-    document.getElementById('back-btn').style.display = 'block';
+    
+    const backBtn = document.getElementById('back-btn');
+    if (backBtn) backBtn.style.display = 'block';
     
     player.loadVideoById({
         videoId: videoId,
@@ -184,13 +182,5 @@ function playVideo(videoId) {
     });
 }
 
-function showHome() {
-    // Return to normal
-    playerContainer.classList.remove('active');
-    playerContainer.style.display = 'none';
-    document.getElementById('back-btn').style.display = 'none';
-    
-    if (player) player.stopVideo();
-
+// Start with the home screen
 showHome();
-}
