@@ -44,6 +44,18 @@
             z-index: 10;
             background: transparent;
         }
+    
+        /* This blocks clicks on the bottom-right YouTube logo */
+        .corner-shield {
+            position: absolute;
+            bottom: 0;
+            right: 0;
+            width: 80px;  /* Covers the logo area */
+            height: 50px; /* Covers the logo area */
+            z-index: 10;
+            background: transparent; /* Keep it invisible */
+            cursor: default;
+        }
 
         #video-player {
             width: 100%;
@@ -92,10 +104,11 @@
 
     <div id="player-container">
         <div class="header-shield"></div>
-        
+        <div class="corner-shield"></div>
         <div id="video-player"></div>
     </div>
-    
+    <div id="back-btn" class="back-btn-overlay" onclick="showHome()">← Back</div>
+
     <h2>Pick a Channel</h2>
     <div id="video-list" class="video-grid"></div>
 

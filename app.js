@@ -45,13 +45,13 @@ function onYouTubeIframeAPIReady() {
         host: 'https://www.youtube-nocookie.com',
         playerVars: {
             'autoplay': 0,
-            'rel': 0,
-            'modestbranding': 1,
-            'playsinline': 1,
-            'iv_load_policy': 3,
+            'rel': 0,               // Same channel only
+            'modestbranding': 1,    // Removes large YT logo
+            'playsinline': 1,       // CRITICAL: Prevents iOS from hijacking to native player
+            'fs': 0,                // THE LOCK: Disables the Full Screen button entirely
+            'iv_load_policy': 3,    // Hides annotations
             'enablejsapi': 1,
-            // REQUIRED FOR BRAVE: Explicitly define the origin
-            'origin': window.location.origin 
+            'origin': window.location.origin // Fixes Brave/Safari handshake
         },
         events: {
             'onStateChange': onPlayerStateChange,
@@ -171,16 +171,26 @@ function renderChannelView(videos, name) {
 
 // 7. Play Video via API (The "Black Box" Fix)
 function playVideo(videoId) {
+    if (!player || typeof player.loadVideoById !== 'function') return;
+
+    // Maximize the player
+    playerContainer.classList.add('active');
     playerContainer.style.display = 'block';
+    document.getElementById('back-btn').style.display = 'block';
     
-    // Using loadVideoById is much safer than changing .src 
-    // as it prevents the playlist "drawer" from rendering.
     player.loadVideoById({
         videoId: videoId,
         suggestedQuality: 'hd720'
     });
-
-    window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
+function showHome() {
+    // Return to normal
+    playerContainer.classList.remove('active');
+    playerContainer.style.display = 'none';
+    document.getElementById('back-btn').style.display = 'none';
+    
+    if (player) player.stopVideo();
+
 showHome();
+}
