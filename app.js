@@ -110,7 +110,7 @@ function showHome() {
     });
 }
 
-// 5. Fetch Channel Videos (PAGINATED for Outdoor Boys)
+// 5. Fetch Channel Videos (With Duration Filtering)
 async function fetchChannelVideos(playlistId, name) {
     const cacheKey = `cache_${playlistId}`;
     const cachedData = localStorage.getItem(cacheKey);
@@ -121,35 +121,64 @@ async function fetchChannelVideos(playlistId, name) {
         return;
     }
 
-    videoList.innerHTML = `<p style="padding:20px;">Opening ${name}...</p>`;
+    videoList.innerHTML = `<p style="padding:20px;">Auditing ${name} for "Real" videos...</p>`;
     
     try {
         let allItems = [];
-        let nextPageToken = '';
-        
-        // Base Request (First 50)
         const baseUrl = `https://www.googleapis.com/youtube/v3/playlistItems?key=${API_KEY}&playlistId=${playlistId}&part=snippet&maxResults=50`;
         
-        const response = await fetch(baseUrl);
-        const data = await response.json();
-        if (data.items) allItems = data.items;
-        nextPageToken = data.nextPageToken;
+        // Call 1: Get first 50
+        const res1 = await fetch(baseUrl);
+        const data1 = await res1.json();
+        if (data1.items) allItems = data1.items;
 
-        // TACTICAL BYPASS: If Outdoor Boys, fetch 50 more (Total 100)
-        if (playlistId === 'UUfpCQ89W9wjkHc8J_6eTbBg' && nextPageToken) {
-            const secondResponse = await fetch(`${baseUrl}&pageToken=${nextPageToken}`);
-            const secondData = await secondResponse.json();
-            if (secondData.items) allItems = allItems.concat(secondData.items);
+        // Call 2: If Outdoor Boys, get next 50
+        if (playlistId === 'UUfpCQ89W9wjkHc8J_6eTbBg' && data1.nextPageToken) {
+            const res2 = await fetch(`${baseUrl}&pageToken=${data1.nextPageToken}`);
+            const data2 = await res2.json();
+            if (data2.items) allItems = allItems.concat(data2.items);
         }
 
-        if (allItems.length > 0) {
-            localStorage.setItem(cacheKey, JSON.stringify(allItems));
+        // --- THE DURATION AUDIT (The "Shorts" Filter) ---
+        // 1. Extract IDs
+        const videoIds = allItems.map(item => item.snippet.resourceId.videoId).join(',');
+        
+        // 2. Batch Request for Durations (1 API Unit)
+        const detailsUrl = `https://www.googleapis.com/youtube/v3/videos?key=${API_KEY}&id=${videoIds}&part=contentDetails`;
+        const detailsRes = await fetch(detailsUrl);
+        const detailsData = await detailsRes.json();
+
+        // 3. Map durations back to the items
+        const durationMap = {};
+        detailsData.items.forEach(item => {
+            durationMap[item.id] = parseISO8601Duration(item.contentDetails.duration);
+        });
+
+        // 4. Final Filter: Must be > 60 seconds (Cost: 0 Units)
+        const realVideos = allItems.filter(item => {
+            const duration = durationMap[item.snippet.resourceId.videoId] || 0;
+            return duration >= 60; 
+        });
+
+        if (realVideos.length > 0) {
+            localStorage.setItem(cacheKey, JSON.stringify(realVideos));
             localStorage.setItem(`${cacheKey}_time`, Date.now());
-            renderChannelView(allItems, name);
+            renderChannelView(realVideos, name);
         }
     } catch (e) {
-        videoList.innerHTML = '<p style="padding:20px;">Error loading videos.</p>';
+        console.error(e);
+        videoList.innerHTML = '<p style="padding:20px;">Error performing duration audit.</p>';
     }
+}
+
+// Helper to convert YouTube's "PT10M30S" format to total seconds
+function parseISO8601Duration(duration) {
+    const match = duration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+    if (!match) return 0;
+    const hours = parseInt(match[1]) || 0;
+    const minutes = parseInt(match[2]) || 0;
+    const seconds = parseInt(match[3]) || 0;
+    return (hours * 3600) + (minutes * 60) + seconds;
 }
 
 // 6. Grid View
