@@ -70,14 +70,12 @@ function onPlayerError(event) {
 
 function onPlayerStateChange(event) {
     if (event.data === YT.PlayerState.ENDED) {
-        // Automatically run showHome to reset UI when video ends
         showHome();
     }
 }
 
-// 4. Show Home (Consolidated and Corrected)
+// 4. Show Home
 function showHome() {
-    // Return UI to normal
     playerContainer.classList.remove('active');
     playerContainer.style.display = 'none';
     const backBtn = document.getElementById('back-btn');
@@ -92,14 +90,11 @@ function showHome() {
         const folder = document.createElement('div');
         folder.className = 'video-card';
         
-        // REVISED Logic: Using a reliable placeholder if it's a playlist (PL)
-        // because PL IDs cannot be converted to Video Thumbnails via string hacking.
         let folderThumb;
         if (channel.id.startsWith('UU')) {
             folderThumb = `https://i.ytimg.com/vi/${channel.id.replace('UU', '')}/mqdefault.jpg`;
         } else {
-            // Curated Playlists (PL) get a generic Prager icon or a static fallback
-            folderThumb = 'https://i.ytimg.com/vi/38pP0_Z-kMw/mqdefault.jpg'; // Example static thumb
+            folderThumb = 'https://i.ytimg.com/vi/38pP0_Z-kMw/mqdefault.jpg'; 
         }
 
         folder.innerHTML = `
@@ -115,7 +110,7 @@ function showHome() {
     });
 }
 
-// 5. Fetch Channel Videos (Caching included)
+// 5. Fetch Channel Videos (PAGINATED for Outdoor Boys)
 async function fetchChannelVideos(playlistId, name) {
     const cacheKey = `cache_${playlistId}`;
     const cachedData = localStorage.getItem(cacheKey);
@@ -127,15 +122,30 @@ async function fetchChannelVideos(playlistId, name) {
     }
 
     videoList.innerHTML = `<p style="padding:20px;">Opening ${name}...</p>`;
-    const url = `https://www.googleapis.com/youtube/v3/playlistItems?key=${API_KEY}&playlistId=${playlistId}&part=snippet&maxResults=50`;
     
     try {
-        const response = await fetch(url);
+        let allItems = [];
+        let nextPageToken = '';
+        
+        // Base Request (First 50)
+        const baseUrl = `https://www.googleapis.com/youtube/v3/playlistItems?key=${API_KEY}&playlistId=${playlistId}&part=snippet&maxResults=50`;
+        
+        const response = await fetch(baseUrl);
         const data = await response.json();
-        if (data.items) {
-            localStorage.setItem(cacheKey, JSON.stringify(data.items));
+        if (data.items) allItems = data.items;
+        nextPageToken = data.nextPageToken;
+
+        // TACTICAL BYPASS: If Outdoor Boys, fetch 50 more (Total 100)
+        if (playlistId === 'UUfpCQ89W9wjkHc8J_6eTbBg' && nextPageToken) {
+            const secondResponse = await fetch(`${baseUrl}&pageToken=${nextPageToken}`);
+            const secondData = await secondResponse.json();
+            if (secondData.items) allItems = allItems.concat(secondData.items);
+        }
+
+        if (allItems.length > 0) {
+            localStorage.setItem(cacheKey, JSON.stringify(allItems));
             localStorage.setItem(`${cacheKey}_time`, Date.now());
-            renderChannelView(data.items, name);
+            renderChannelView(allItems, name);
         }
     } catch (e) {
         videoList.innerHTML = '<p style="padding:20px;">Error loading videos.</p>';
@@ -166,7 +176,7 @@ function renderChannelView(videos, name) {
     });
 }
 
-// 7. Play Video (Pseudo-fullscreen included)
+// 7. Play Video
 function playVideo(videoId) {
     if (!player || typeof player.loadVideoById !== 'function') return;
 
@@ -182,5 +192,5 @@ function playVideo(videoId) {
     });
 }
 
-// Start with the home screen
+// Initial Boot
 showHome();
