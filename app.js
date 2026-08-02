@@ -2,6 +2,7 @@ const API_KEY = 'AIzaSyDm-xk-2x0bDbW0FikDJDBMYT5t33QA6BQ';
 
 const ALLOWED_CHANNELS = [
     { id: 'PLlBVuTSjOrclb0iCMSRpS_H1lSrlSVeEm', name: 'Science Buddies-Elenco' },
+    { id: 'UUkMCoe_j9MEtkGh9zsZGzLw', name: 'Wild Birds Unlimited' },
     { id: 'UUfpCQ89W9wjkHc8J_6eTbBg', name: 'Outdoor Boys' },
     { id: 'UUiLW00N3_Qe5yazpDk8xxjA', name: 'Outdoor Tom' },
     { id: 'UUIMXKin1fXXCeq2UJePJEog', name: 'My Self Reliance' },
