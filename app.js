@@ -2,6 +2,8 @@ const API_KEY = 'AIzaSyDm-xk-2x0bDbW0FikDJDBMYT5t33QA6BQ';
 
 const ALLOWED_CHANNELS = [
     { id: 'PLlBVuTSjOrclb0iCMSRpS_H1lSrlSVeEm', name: 'Science Buddies-Elenco' },
+    { id: 'UU1usuCeFHj1tQikOJ00SWyA', name: 'Patriot DIY' },
+    { id: 'UUqD7wgVS7jjJcJ8u0W9tt-Q', name: 'Meyer Makes' },
     { id: 'UUkMCoe_j9MEtkGh9zsZGzLw', name: 'Wild Birds Unlimited' },
     { id: 'UUfpCQ89W9wjkHc8J_6eTbBg', name: 'Outdoor Boys' },
     { id: 'UUiLW00N3_Qe5yazpDk8xxjA', name: 'Outdoor Tom' },
@@ -9,6 +11,7 @@ const ALLOWED_CHANNELS = [
     { id: 'UUNepEAWZH0TBu7dkxIbluDw', name: 'Dad, How Do I?' },
     { id: 'UUq0fxytZwEYul4AmfEiXL_w', name: 'Zen Garden Oasis' },
     { id: 'UUasG9kJWi1eVxM0QkyqKVJQ', name: 'Hand Tool Rescue' },
+    { id: 'UUUtWNBWbFL9We-cdXkiAuJA', name: 'This Old House' },
     { id: 'PLU6AbyBWHPOtBBMOm7HwK2dEvGkrnpZvy', name: 'Prager-Trailblazers' },
     { id: 'PLU6AbyBWHPOsDaw5dQ4VVNVlhWKe0MaCx', name: 'Prager-Hustle' },
     { id: 'PLU6AbyBWHPOuH5OQLqaSi2xZqth4WTW_c', name: 'Prager-History' },
@@ -17,19 +20,20 @@ const ALLOWED_CHANNELS = [
     { id: 'UUs7ywDt1v4zHhn7sfCao-lQ', name: 'Sam Eckholm' },
     { id: 'UUShDR6hPfOqyUjMbasOrb8w', name: 'Warrior Kids' },
     { id: 'UUzWn_gTaXyH5Idyo8Raf7_A', name: 'Catfish and Carp' },
-    { id: 'UU8H3lzJU5Qm-s3WVroB87kw', name: 'AWMI'},
-    { id: 'UU8TdKeCw11lF9QYX33wmWeQ', name: 'Rick McFarland - River Rock'},
-    { id: 'UUmPBWknVW9b4oCkgtqnfCyA', name: 'Greg Mohr'},
+    { id: 'UU8H3lzJU5Qm-s3WVroB87kw', name: 'AWMI' },
+    { id: 'UU8TdKeCw11lF9QYX33wmWeQ', name: 'Rick McFarland - River Rock' },
+    { id: 'UUmPBWknVW9b4oCkgtqnfCyA', name: 'Greg Mohr' },
     { id: 'UUPfldVy-GUtV-0n7n9v_xhg', name: 'Keith Moore Faith Life' },
-    { id: 'UUsljKOcYKll4vQmvPOsovkQ', name: 'Charis'},
-    { id: 'UUxrLpZPsYKvE7qSiULRaT7g', name: 'GTN'},
-    { id: 'UUZA2cbFAHOcwY3V1T6tLfYQ', name: 'Barry Bennett'},
+    { id: 'UUsljKOcYKll4vQmvPOsovkQ', name: 'Charis' },
+    { id: 'UUxrLpZPsYKvE7qSiULRaT7g', name: 'GTN' },
+    { id: 'UUZA2cbFAHOcwY3V1T6tLfYQ', name: 'Barry Bennett' },
     { id: 'UU9tPS5igk3NOyDP0XLX96bw', name: 'Duck Dynasty' },
     { id: 'UUEDp4UbPxHjGT7B1cRZXt_w', name: 'Shotgun Scientists' },
     { id: 'UUfU5tYD7fuHC9E4DaxsTH-g', name: 'Stalekracker' },
     { id: 'UUHstNaT6R-1zA0lBU_XBr_Q', name: 'Marines' }
 ];
 
+const MAX_PAGES = 3; // 3 pages * 50 results = Up to 150 videos for ALL channels
 const videoList = document.getElementById('video-list');
 const playerContainer = document.getElementById('player-container');
 let player; 
@@ -67,7 +71,7 @@ function onPlayerError(event) {
     if (event.data === 101 || event.data === 150) {
         playerContainer.style.display = 'none';
         player.stopVideo();
-        alert("This video is locked and cannot play in the sandbox.");
+        alert("The video owner disabled embedded playback for this video.");
     }
 }
 
@@ -77,14 +81,14 @@ function onPlayerStateChange(event) {
     }
 }
 
-// 4. Show Home
+// 4. Show Home View
 function showHome() {
     playerContainer.classList.remove('active');
     playerContainer.style.display = 'none';
     const backBtn = document.getElementById('back-btn');
     if (backBtn) backBtn.style.display = 'none';
     
-    if (player) player.stopVideo();
+    if (player && typeof player.stopVideo === 'function') player.stopVideo();
     
     document.querySelector('h2').innerText = "Pick a Channel";
     videoList.innerHTML = '';
@@ -93,17 +97,26 @@ function showHome() {
         const folder = document.createElement('div');
         folder.className = 'video-card';
         
-        let folderThumb;
-        if (channel.id.startsWith('UU')) {
-            folderThumb = `https://i.ytimg.com/vi/${channel.id.replace('UU', '')}/mqdefault.jpg`;
-        } else {
-            folderThumb = 'https://i.ytimg.com/vi/38pP0_Z-kMw/mqdefault.jpg'; 
+        // Use cached first video thumbnail if available, or clean fallback styling
+        const cacheKey = `cache_${channel.id}`;
+        const cachedData = localStorage.getItem(cacheKey);
+        let folderThumb = 'https://i.ytimg.com/vi/38pP0_Z-kMw/mqdefault.jpg';
+        
+        if (cachedData) {
+            try {
+                const parsed = JSON.parse(cachedData);
+                if (parsed.length > 0 && parsed[0].snippet?.thumbnails?.medium?.url) {
+                    folderThumb = parsed[0].snippet.thumbnails.medium.url;
+                }
+            } catch (e) {
+                console.error("Cache parsing error", e);
+            }
         }
 
         folder.innerHTML = `
             <div style="position:relative;">
                 <img class="video-thumb" src="${folderThumb}" style="border: 3px solid #333; filter: brightness(0.7);">
-                <div style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); font-weight:bold; font-size:18px; text-shadow: 2px 2px 4px #000;">OPEN</div>
+                <div style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); font-weight:bold; font-size:18px; text-shadow: 2px 2px 4px #000; color:#fff;">OPEN</div>
             </div>
             <div class="video-title" style="text-align:center; font-weight:bold; padding: 10px 0;">${channel.name}</div>
         `;
@@ -113,13 +126,14 @@ function showHome() {
     });
 }
 
-// 5. Fetch Channel Videos (PAGINATED + CHUNKED AUDIT)
+// 5. Fetch Channel Videos (PAGINATED UP TO 150 FOR ALL CHANNELS)
 async function fetchChannelVideos(playlistId, name) {
     const cacheKey = `cache_${playlistId}`;
     const cachedData = localStorage.getItem(cacheKey);
     const cacheTime = localStorage.getItem(`${cacheKey}_time`);
 
-    if (cachedData && cacheTime && (Date.now() - cacheTime < 14400000)) {
+    // 4-Hour Cache Check (14,400,000 ms)
+    if (cachedData && cacheTime && (Date.now() - Number(cacheTime) < 14400000)) {
         renderChannelView(JSON.parse(cachedData), name);
         return;
     }
@@ -129,17 +143,23 @@ async function fetchChannelVideos(playlistId, name) {
     try {
         let allItems = [];
         let nextPageToken = '';
-        let pagesToFetch = (playlistId === 'UUfpCQ89W9wjkHc8J_6eTbBg') ? 3 : 1;
 
-        // FETCHING PHASE (Up to 150 videos)
-        for (let i = 0; i < pagesToFetch; i++) {
+        // FETCHING PHASE: Pull up to 3 pages (150 items) for ALL channels
+        for (let i = 0; i < MAX_PAGES; i++) {
             const url = `https://www.googleapis.com/youtube/v3/playlistItems?key=${API_KEY}&playlistId=${playlistId}&part=snippet&maxResults=50${nextPageToken ? `&pageToken=${nextPageToken}` : ''}`;
             const res = await fetch(url);
-            const data = await res.json();
+            if (!res.ok) break;
             
+            const data = await res.json();
             if (data.items) allItems = allItems.concat(data.items);
+            
             nextPageToken = data.nextPageToken;
             if (!nextPageToken) break;
+        }
+
+        if (allItems.length === 0) {
+            videoList.innerHTML = '<p style="padding:20px;">No videos found for this channel.</p>';
+            return;
         }
 
         // DURATION AUDIT PHASE (Chunked to 50 IDs per request)
@@ -150,14 +170,17 @@ async function fetchChannelVideos(playlistId, name) {
             const chunk = videoIds.slice(i, i + 50).join(',');
             const detailsUrl = `https://www.googleapis.com/youtube/v3/videos?key=${API_KEY}&id=${chunk}&part=contentDetails`;
             const detailsRes = await fetch(detailsUrl);
-            const detailsData = await detailsRes.json();
+            if (!detailsRes.ok) continue;
             
-            detailsData.items.forEach(item => {
-                durationMap[item.id] = parseISO8601Duration(item.contentDetails.duration);
-            });
+            const detailsData = await detailsRes.json();
+            if (detailsData.items) {
+                detailsData.items.forEach(item => {
+                    durationMap[item.id] = parseISO8601Duration(item.contentDetails.duration);
+                });
+            }
         }
 
-        // FILTER PHASE: Keep only > 60s
+        // FILTER PHASE: Keep long-form videos (>= 60s)
         const realVideos = allItems.filter(item => {
             const duration = durationMap[item.snippet.resourceId.videoId] || 0;
             return duration >= 60; 
@@ -165,14 +188,14 @@ async function fetchChannelVideos(playlistId, name) {
 
         if (realVideos.length > 0) {
             localStorage.setItem(cacheKey, JSON.stringify(realVideos));
-            localStorage.setItem(`${cacheKey}_time`, Date.now());
+            localStorage.setItem(`${cacheKey}_time`, Date.now().toString());
             renderChannelView(realVideos, name);
         } else {
             videoList.innerHTML = '<p style="padding:20px;">No long-form videos found.</p>';
         }
     } catch (e) {
         console.error("Audit Failure:", e);
-        videoList.innerHTML = '<p style="padding:20px;">System Error: Duration Audit Failed.</p>';
+        videoList.innerHTML = '<p style="padding:20px;">System Error: Failed to retrieve video list.</p>';
     }
 }
 
