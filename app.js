@@ -3,7 +3,7 @@ const API_KEY = 'AIzaSyDm-xk-2x0bDbW0FikDJDBMYT5t33QA6BQ';
 const ALLOWED_CHANNELS = [
     { id: 'PLlBVuTSjOrclb0iCMSRpS_H1lSrlSVeEm', name: 'Science Buddies-Elenco' },
     { id: 'UU1usuCeFHj1tQikOJ00SWyA', name: 'Patriot DIY' },
-    { id: 'UUqD7wgVS7jjJcJ8u0W9tt-Q', name: 'Meyer Makes' },
+    { id: 'UU3-GqvQtVl0x5o3TiQi2gCg', name: 'Meyer Makes' },
     { id: 'UUkMCoe_j9MEtkGh9zsZGzLw', name: 'Wild Birds Unlimited' },
     { id: 'UUfpCQ89W9wjkHc8J_6eTbBg', name: 'Outdoor Boys' },
     { id: 'UUiLW00N3_Qe5yazpDk8xxjA', name: 'Outdoor Tom' },
@@ -69,11 +69,14 @@ function onYouTubeIframeAPIReady() {
 }
 
 function onPlayerStateChange(event) {
-    // Kill caption rendering engines when video starts playing
+    // Safely disable active caption tracks without interrupting video playback
     if (event.data === YT.PlayerState.PLAYING) {
-        if (typeof player.unloadModule === 'function') {
-            player.unloadModule('cc');
-            player.unloadModule('captions');
+        try {
+            if (typeof player.setOption === 'function') {
+                player.setOption('captions', 'track', {});
+            }
+        } catch (e) {
+            console.warn("Caption disable error skipped:", e);
         }
     }
 
