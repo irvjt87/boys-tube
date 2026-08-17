@@ -33,10 +33,13 @@ const ALLOWED_CHANNELS = [
     { id: 'UUHstNaT6R-1zA0lBU_XBr_Q', name: 'Marines' }
 ];
 
-const MAX_PAGES = 3; // 3 pages * 50 results = Up to 150 videos for ALL channels
+const MAX_PAGES = 3; 
 const videoList = document.getElementById('video-list');
 const playerContainer = document.getElementById('player-container');
-let player; 
+
+let player = null;
+let isPlayerReady = false;
+let pendingVideoId = null;
 
 // 1. Load YouTube IFrame API
 const tag = document.createElement('script');
@@ -46,33 +49,57 @@ firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
 
 // 2. Initialize Player
 function onYouTubeIframeAPIReady() {
+    const playerVarsObj = {
+        'autoplay': 1,
+        'rel': 0,
+        'modestbranding': 1,
+        'playsinline': 1, 
+        'fs': 0,          
+        'iv_load_policy': 3,
+        'enablejsapi': 1,
+        'cc_load_policy': 0
+    };
+
+    if (window.location.protocol.startsWith('http')) {
+        playerVarsObj.origin = window.location.origin;
+    }
+
     player = new YT.Player('video-player', {
         height: '360',
         width: '640',
+        videoId: '38pP0_Z-kMw', // Default baseline ID to initialize iframe properly
         host: 'https://www.youtube-nocookie.com',
-        playerVars: {
-            'autoplay': 0,
-            'rel': 0,
-            'modestbranding': 1,
-            'playsinline': 1, 
-            'fs': 0,          
-            'iv_load_policy': 3,
-            'enablejsapi': 1,
-            'cc_load_policy': 0, // Force closed captions OFF by default
-            'origin': window.location.origin 
-        },
+        playerVars: playerVarsObj,
         events: {
+            'onReady': onPlayerReady,
             'onStateChange': onPlayerStateChange,
             'onError': onPlayerError
         }
     });
 }
 
+function onPlayerReady(event) {
+    isPlayerReady = true;
+    // Execute queued video load if user clicked prior to API readiness
+    if (pendingVideoId) {
+        const vidToPlay = pendingVideoId;
+        pendingVideoId = null;
+        playVideo(vidToPlay);
+    }
+}
+
+function onPlayerError(event) {
+    if (event.data === 101 || event.data === 150) {
+        if (playerContainer) playerContainer.style.display = 'none';
+        if (player && typeof player.stopVideo === 'function') player.stopVideo();
+        alert("The video owner disabled embedded playback for this video.");
+    }
+}
+
 function onPlayerStateChange(event) {
-    // Safely disable active caption tracks without interrupting video playback
     if (event.data === YT.PlayerState.PLAYING) {
         try {
-            if (typeof player.setOption === 'function') {
+            if (player && typeof player.setOption === 'function') {
                 player.setOption('captions', 'track', {});
             }
         } catch (e) {
@@ -87,21 +114,26 @@ function onPlayerStateChange(event) {
 
 // 4. Show Home View
 function showHome() {
-    playerContainer.classList.remove('active');
-    playerContainer.style.display = 'none';
+    if (playerContainer) {
+        playerContainer.classList.remove('active');
+        playerContainer.style.display = 'none';
+    }
     const backBtn = document.getElementById('back-btn');
     if (backBtn) backBtn.style.display = 'none';
     
-    if (player && typeof player.stopVideo === 'function') player.stopVideo();
+    if (player && isPlayerReady && typeof player.stopVideo === 'function') {
+        player.stopVideo();
+    }
     
-    document.querySelector('h2').innerText = "Pick a Channel";
-    videoList.innerHTML = '';
+    const header = document.querySelector('h2');
+    if (header) header.innerText = "Pick a Channel";
+    
+    if (videoList) videoList.innerHTML = '';
 
     ALLOWED_CHANNELS.forEach(channel => {
         const folder = document.createElement('div');
         folder.className = 'video-card';
         
-        // Use cached first video thumbnail if available, or clean fallback styling
         const cacheKey = `cache_${channel.id}`;
         const cachedData = localStorage.getItem(cacheKey);
         let folderThumb = 'https://i.ytimg.com/vi/38pP0_Z-kMw/mqdefault.jpg';
@@ -109,7 +141,7 @@ function showHome() {
         if (cachedData) {
             try {
                 const parsed = JSON.parse(cachedData);
-                if (parsed.length > 0 && parsed[0].snippet?.thumbnails?.medium?.url) {
+                if (Array.isArray(parsed) && parsed.length > 0 && parsed[0].snippet?.thumbnails?.medium?.url) {
                     folderThumb = parsed[0].snippet.thumbnails.medium.url;
                 }
             } catch (e) {
@@ -126,29 +158,32 @@ function showHome() {
         `;
         
         folder.onclick = () => fetchChannelVideos(channel.id, channel.name);
-        videoList.appendChild(folder);
+        if (videoList) videoList.appendChild(folder);
     });
 }
 
-// 5. Fetch Channel Videos (PAGINATED UP TO 150 FOR ALL CHANNELS)
+// 5. Fetch Channel Videos
 async function fetchChannelVideos(playlistId, name) {
     const cacheKey = `cache_${playlistId}`;
     const cachedData = localStorage.getItem(cacheKey);
     const cacheTime = localStorage.getItem(`${cacheKey}_time`);
 
-    // 4-Hour Cache Check (14,400,000 ms)
     if (cachedData && cacheTime && (Date.now() - Number(cacheTime) < 14400000)) {
-        renderChannelView(JSON.parse(cachedData), name);
-        return;
+        try {
+            renderChannelView(JSON.parse(cachedData), name);
+            return;
+        } catch (e) {
+            localStorage.removeItem(cacheKey);
+            localStorage.removeItem(`${cacheKey}_time`);
+        }
     }
 
-    videoList.innerHTML = `<p style="padding:20px;">Fetching and Auditing ${name}...</p>`;
+    if (videoList) videoList.innerHTML = `<p style="padding:20px;">Fetching and Auditing ${name}...</p>`;
     
     try {
         let allItems = [];
         let nextPageToken = '';
 
-        // FETCHING PHASE: Pull up to 3 pages (150 items) for ALL channels
         for (let i = 0; i < MAX_PAGES; i++) {
             const url = `https://www.googleapis.com/youtube/v3/playlistItems?key=${API_KEY}&playlistId=${playlistId}&part=snippet&maxResults=50${nextPageToken ? `&pageToken=${nextPageToken}` : ''}`;
             const res = await fetch(url);
@@ -162,11 +197,10 @@ async function fetchChannelVideos(playlistId, name) {
         }
 
         if (allItems.length === 0) {
-            videoList.innerHTML = '<p style="padding:20px;">No videos found for this channel.</p>';
+            if (videoList) videoList.innerHTML = '<p style="padding:20px;">No videos found for this channel.</p>';
             return;
         }
 
-        // DURATION AUDIT PHASE (Chunked to 50 IDs per request)
         const durationMap = {};
         const videoIds = allItems.map(item => item.snippet.resourceId.videoId);
         
@@ -184,7 +218,6 @@ async function fetchChannelVideos(playlistId, name) {
             }
         }
 
-        // FILTER PHASE: Keep long-form videos (>= 60s)
         const realVideos = allItems.filter(item => {
             const duration = durationMap[item.snippet.resourceId.videoId] || 0;
             return duration >= 60; 
@@ -195,11 +228,11 @@ async function fetchChannelVideos(playlistId, name) {
             localStorage.setItem(`${cacheKey}_time`, Date.now().toString());
             renderChannelView(realVideos, name);
         } else {
-            videoList.innerHTML = '<p style="padding:20px;">No long-form videos found.</p>';
+            if (videoList) videoList.innerHTML = '<p style="padding:20px;">No long-form videos found.</p>';
         }
     } catch (e) {
         console.error("Audit Failure:", e);
-        videoList.innerHTML = '<p style="padding:20px;">System Error: Failed to retrieve video list.</p>';
+        if (videoList) videoList.innerHTML = '<p style="padding:20px;">System Error: Failed to retrieve video list.</p>';
     }
 }
 
@@ -214,8 +247,9 @@ function parseISO8601Duration(duration) {
 
 // 6. Grid View
 function renderChannelView(videos, name) {
-    document.querySelector('h2').innerHTML = `<span onclick="showHome()" style="color:#3498db; cursor:pointer;">← Back</span> | ${name}`;
-    videoList.innerHTML = '';
+    const header = document.querySelector('h2');
+    if (header) header.innerHTML = `<span onclick="showHome()" style="color:#3498db; cursor:pointer;">← Back</span> | ${name}`;
+    if (videoList) videoList.innerHTML = '';
     
     videos.forEach(video => {
         const videoId = video.snippet.resourceId.videoId;
@@ -226,24 +260,31 @@ function renderChannelView(videos, name) {
             <div class="video-title">${video.snippet.title}</div>
         `;
         card.onclick = () => playVideo(videoId);
-        videoList.appendChild(card);
+        if (videoList) videoList.appendChild(card);
     });
 }
 
 // 7. Play Video
 function playVideo(videoId) {
-    if (!player || typeof player.loadVideoById !== 'function') return;
+    if (!isPlayerReady || !player) {
+        pendingVideoId = videoId;
+        return;
+    }
 
-    playerContainer.classList.add('active');
-    playerContainer.style.display = 'block';
+    if (playerContainer) {
+        playerContainer.classList.add('active');
+        playerContainer.style.display = 'block';
+    }
     
     const backBtn = document.getElementById('back-btn');
     if (backBtn) backBtn.style.display = 'block';
     
-    player.loadVideoById({
-        videoId: videoId,
-        suggestedQuality: 'hd720'
-    });
+    if (typeof player.loadVideoById === 'function') {
+        player.loadVideoById({
+            videoId: videoId,
+            suggestedQuality: 'hd720'
+        });
+    }
 }
 
 showHome();
