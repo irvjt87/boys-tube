@@ -58,6 +58,7 @@ function onYouTubeIframeAPIReady() {
             'fs': 0,          
             'iv_load_policy': 3,
             'enablejsapi': 1,
+            'cc_load_policy': 0, // Force closed captions OFF by default
             'origin': window.location.origin 
         },
         events: {
@@ -67,15 +68,15 @@ function onYouTubeIframeAPIReady() {
     });
 }
 
-function onPlayerError(event) {
-    if (event.data === 101 || event.data === 150) {
-        playerContainer.style.display = 'none';
-        player.stopVideo();
-        alert("The video owner disabled embedded playback for this video.");
-    }
-}
-
 function onPlayerStateChange(event) {
+    // Kill caption rendering engines when video starts playing
+    if (event.data === YT.PlayerState.PLAYING) {
+        if (typeof player.unloadModule === 'function') {
+            player.unloadModule('cc');
+            player.unloadModule('captions');
+        }
+    }
+
     if (event.data === YT.PlayerState.ENDED) {
         showHome();
     }
