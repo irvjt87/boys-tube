@@ -7,6 +7,7 @@ const ALLOWED_CHANNELS = [
     { id: 'UUkMCoe_j9MEtkGh9zsZGzLw', name: 'Wild Birds Unlimited' },
     { id: 'UUfpCQ89W9wjkHc8J_6eTbBg', name: 'Outdoor Boys' },
     { id: 'UUiLW00N3_Qe5yazpDk8xxjA', name: 'Outdoor Tom' },
+    { id: 'PLLb4Aujw26R6FsJJ3py4ponBlBxp0UnRA', name: 'Discovery UK' },
     { id: 'UUIMXKin1fXXCeq2UJePJEog', name: 'My Self Reliance' },
     { id: 'UUNepEAWZH0TBu7dkxIbluDw', name: 'Dad, How Do I?' },
     { id: 'UUq0fxytZwEYul4AmfEiXL_w', name: 'Zen Garden Oasis' },
@@ -89,7 +90,7 @@ function onPlayerReady(event) {
 }
 
 function onPlayerError(event) {
-    if (event.data === 101 || event.data === 150) {
+    if (event.data === 101 || event.data === 200) {
         if (playerContainer) playerContainer.style.display = 'none';
         if (player && typeof player.stopVideo === 'function') player.stopVideo();
         alert("The video owner disabled embedded playback for this video.");
