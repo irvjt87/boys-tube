@@ -42,6 +42,21 @@ let player = null;
 let isPlayerReady = false;
 let pendingVideoId = null;
 
+// Helper: Filter non-English titles & translations for targeted channel
+function isEnglishVideo(item) {
+    const title = item.snippet?.title || '';
+    
+    // 1. Check for explicit language tags in parentheses or title text
+    const langRegex = /\b(Vietnamese|Turkish|Thai|Swahili|Spanish|Español|French|Français|German|Deutsch|Russian|Portuguese|Hindi|Arabic|Italian|Tagalog|Korean|Chinese|Japanese|Farsi|Urdu)\b/i;
+    if (langRegex.test(title)) return false;
+
+    // 2. Check for non-Latin scripts (Thai, Cyrillic, Arabic, Devanagari, CJK) and specific foreign diacritics
+    const nonEnglishScriptRegex = /[\u0e00-\u0e7f\u0400-\u04FF\u0600-\u06FF\u0900-\u097F\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fffİıĞğŞşÇçÖöÜü]/;
+    if (nonEnglishScriptRegex.test(title)) return false;
+
+    return true;
+}
+
 // 1. Load YouTube IFrame API
 const tag = document.createElement('script');
 tag.src = "https://www.youtube.com/iframe_api";
@@ -68,7 +83,7 @@ function onYouTubeIframeAPIReady() {
     player = new YT.Player('video-player', {
         height: '360',
         width: '640',
-        videoId: '38pP0_Z-kMw', // Default baseline ID to initialize iframe properly
+        videoId: '38pP0_Z-kMw',
         host: 'https://www.youtube-nocookie.com',
         playerVars: playerVarsObj,
         events: {
@@ -81,7 +96,6 @@ function onYouTubeIframeAPIReady() {
 
 function onPlayerReady(event) {
     isPlayerReady = true;
-    // Execute queued video load if user clicked prior to API readiness
     if (pendingVideoId) {
         const vidToPlay = pendingVideoId;
         pendingVideoId = null;
@@ -135,7 +149,7 @@ function showHome() {
         const folder = document.createElement('div');
         folder.className = 'video-card';
         
-        const cacheKey = `cache_${channel.id}`;
+        const cacheKey = `cache_v2_${channel.id}`;
         const cachedData = localStorage.getItem(cacheKey);
         let folderThumb = 'https://i.ytimg.com/vi/38pP0_Z-kMw/mqdefault.jpg';
         
@@ -165,7 +179,7 @@ function showHome() {
 
 // 5. Fetch Channel Videos
 async function fetchChannelVideos(playlistId, name) {
-    const cacheKey = `cache_${playlistId}`;
+    const cacheKey = `cache_v2_${playlistId}`;
     const cachedData = localStorage.getItem(cacheKey);
     const cacheTime = localStorage.getItem(`${cacheKey}_time`);
 
@@ -219,17 +233,22 @@ async function fetchChannelVideos(playlistId, name) {
             }
         }
 
-        const realVideos = allItems.filter(item => {
+        let realVideos = allItems.filter(item => {
             const duration = durationMap[item.snippet.resourceId.videoId] || 0;
             return duration >= 60; 
         });
+
+        // Enforce language audit specifically for Keith Moore Faith Life channel
+        if (playlistId === 'UUPfldVy-GUtV-0n7n9v_xhg') {
+            realVideos = realVideos.filter(isEnglishVideo);
+        }
 
         if (realVideos.length > 0) {
             localStorage.setItem(cacheKey, JSON.stringify(realVideos));
             localStorage.setItem(`${cacheKey}_time`, Date.now().toString());
             renderChannelView(realVideos, name);
         } else {
-            if (videoList) videoList.innerHTML = '<p style="padding:20px;">No long-form videos found.</p>';
+            if (videoList) videoList.innerHTML = '<p style="padding:20px;">No matching videos found.</p>';
         }
     } catch (e) {
         console.error("Audit Failure:", e);
