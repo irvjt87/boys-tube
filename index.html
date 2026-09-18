@@ -142,3 +142,111 @@
     <script src="app.js"></script>
 </body>
 </html>
+<!-- 5-Minute Warning Toast -->
+<div id="bedtime-warning" style="
+  display: none;
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  background: #111;
+  color: #fff;
+  padding: 16px 24px;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  z-index: 9999;
+  font-family: sans-serif;
+  transition: opacity 1s ease;
+  opacity: 0;
+">
+  <span style="margin-right: 12px;">🌙 5 minutes until bedtime cutoff!</span>
+  <button id="warning-ok-btn" style="
+    background: #333;
+    color: #fff;
+    border: 1px solid #555;
+    padding: 4px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+  ">OK</button>
+</div>
+
+<script>
+(function() {
+  // Configurable Settings (24-hour format)
+  const CUTOFF_HOUR = 20;   // 8:00 PM
+  const CUTOFF_MINUTE = 0;   // 00 minutes
+
+  let warningShownToday = false;
+
+  function checkBedtime() {
+    const now = new Date();
+    const currentHour = now.getHours();
+    const currentMinute = now.getMinutes();
+
+    const currentTotalMinutes = currentHour * 60 + currentMinute;
+    const cutoffTotalMinutes = CUTOFF_HOUR * 60 + CUTOFF_MINUTE;
+    const warningTotalMinutes = cutoffTotalMinutes - 5;
+
+    // Reset warning state at midnight
+    if (currentTotalMinutes === 0) {
+      warningShownToday = false;
+    }
+
+    // 1. Check for 5-Minute Warning
+    if (currentTotalMinutes >= warningTotalMinutes && currentTotalMinutes < cutoffTotalMinutes) {
+      if (!warningShownToday) {
+        showWarning();
+        warningShownToday = true;
+      }
+    }
+
+    // 2. Check for Hard Cutoff
+    if (currentTotalMinutes >= cutoffTotalMinutes || currentHour < 6) { // Block late night/early morning access
+      triggerCutoff();
+    }
+  }
+
+  function showWarning() {
+    const toast = document.getElementById('bedtime-warning');
+    const okBtn = document.getElementById('warning-ok-btn');
+    if (!toast) return;
+
+    toast.style.display = 'flex';
+    toast.style.alignItems = 'center';
+    
+    // Fade in
+    setTimeout(() => { toast.style.opacity = '1'; }, 50);
+
+    const fadeOut = () => {
+      toast.style.opacity = '0';
+      setTimeout(() => { toast.style.display = 'none'; }, 1000);
+    };
+
+    // Auto-fade after 4 seconds
+    const autoFadeTimer = setTimeout(fadeOut, 4000);
+
+    // Fade early if 'OK' is clicked
+    okBtn.onclick = () => {
+      clearTimeout(autoFadeTimer);
+      fadeOut();
+    };
+  }
+
+  function triggerCutoff() {
+    // Stop all active YouTube players / iframes
+    document.querySelectorAll('iframe').forEach(iframe => iframe.src = '');
+    document.querySelectorAll('video, audio').forEach(media => media.pause());
+
+    // Try closing the standalone browser window
+    window.close();
+
+    // Fallback if browser blocks window.close()
+    setTimeout(() => {
+      window.location.href = 'about:blank';
+    }, 300);
+  }
+
+  // Check every 30 seconds
+  setInterval(checkBedtime, 3000);
+  checkBedtime(); // Initial execution
+})();
+</script>
