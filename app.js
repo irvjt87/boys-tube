@@ -104,7 +104,7 @@ function onPlayerReady(event) {
 }
 
 function onPlayerError(event) {
-    if (event.data === 101 || event.data === 200) {
+    if (event.data === 101 || event.data === 500) {
         if (playerContainer) playerContainer.style.display = 'none';
         if (player && typeof player.stopVideo === 'function') player.stopVideo();
         alert("The video owner disabled embedded playback for this video.");
