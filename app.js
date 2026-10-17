@@ -2,6 +2,8 @@ const API_KEY = 'AIzaSyDm-xk-2x0bDbW0FikDJDBMYT5t33QA6BQ';
 
 const ALLOWED_CHANNELS = [
     { id: 'PLlBVuTSjOrclb0iCMSRpS_H1lSrlSVeEm', name: 'Science Buddies-Elenco' },
+    { id: 'UUR1p6wj-IYFiZ77D5zPy0jA', name: 'Captain Factory' },
+    { id: 'UUDBRkd8deH-Vk1nWQKWJ72w', name: 'Captain Factory' },
     { id: 'UU1usuCeFHj1tQikOJ00SWyA', name: 'Patriot DIY' },
     { id: 'UU3-GqvQtVl0x5o3TiQi2gCg', name: 'Meyer Makes' },
     { id: 'UUkMCoe_j9MEtkGh9zsZGzLw', name: 'Wild Birds Unlimited' },
