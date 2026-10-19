@@ -142,7 +142,7 @@
     <script src="app.js"></script>
 </body>
 </html>
-<!-- 5-Minute Warning Toast -->
+<!-- Warning & Limit Overlay System -->
 <div id="bedtime-warning" style="
   display: none;
   position: fixed;
@@ -152,13 +152,14 @@
   color: #fff;
   padding: 16px 24px;
   border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.6);
   z-index: 9999;
   font-family: sans-serif;
-  transition: opacity 1s ease;
+  transition: opacity 0.5s ease;
   opacity: 0;
+  border: 1px solid #333;
 ">
-  <span style="margin-right: 12px;">🌙 5 minutes until bedtime cutoff!</span>
+  <span id="warning-text" style="margin-right: 12px;">🌙 5 minutes remaining!</span>
   <button id="warning-ok-btn" style="
     background: #333;
     color: #fff;
@@ -169,84 +170,202 @@
   ">OK</button>
 </div>
 
+<!-- Lockout Screen for Limits -->
+<div id="lockout-screen" style="
+  display: none;
+  position: fixed;
+  top: 0; left: 0; width: 100vw; height: 100vh;
+  background: #000;
+  color: #fff;
+  z-index: 10000;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  padding: 20px;
+  box-sizing: border-border-box;
+">
+  <div style="font-size: 48px; margin-bottom: 10px;">⏳</div>
+  <h1 style="font-size: 22px; margin-bottom: 8px;" id="lockout-title">Watch Limit Reached</h1>
+  <p style="color: #aaa; max-width: 320px; font-size: 14px; line-height: 1.5; margin-bottom: 16px;" id="lockout-msg">
+    You've used 60 minutes of watch time. Take a break!
+  </p>
+  <div id="lockout-timer" style="font-size: 18px; font-weight: bold; color: #3498db; background: #111; padding: 10px 18px; border-radius: 8px; border: 1px solid #222;">
+    Unlocks in: --:--
+  </div>
+</div>
+
 <script>
 (function() {
-  // Configurable Settings (24-hour format)
-  const CUTOFF_HOUR = 20;   // 8:00 PM
-  const CUTOFF_MINUTE = 15;   // 15 minutes
+  // -------------------------------------------------------------
+  // CONFIGURATION
+  // -------------------------------------------------------------
+  const CUTOFF_HOUR = 20;        // 8:00 PM (24hr format)
+  const CUTOFF_MINUTE = 15;      // 15 minutes
+  const MAX_WATCH_MINUTES = 60;  // Allowed minutes
+  const WINDOW_HOURS = 3;        // Rolling window size in hours
+  // -------------------------------------------------------------
 
-  let warningShownToday = false;
+  const STORAGE_KEY = 'boystube_watch_log_v1';
+  let warningShownType = null; // 'bedtime' or 'timelimit'
 
-  function checkBedtime() {
-    const now = new Date();
-    const currentHour = now.getHours();
-    const currentMinute = now.getMinutes();
-
-    const currentTotalMinutes = currentHour * 60 + currentMinute;
-    const cutoffTotalMinutes = CUTOFF_HOUR * 60 + CUTOFF_MINUTE;
-    const warningTotalMinutes = cutoffTotalMinutes - 5;
-
-    // Reset warning state at midnight
-    if (currentTotalMinutes === 0) {
-      warningShownToday = false;
-    }
-
-    // 1. Check for 5-Minute Warning
-    if (currentTotalMinutes >= warningTotalMinutes && currentTotalMinutes < cutoffTotalMinutes) {
-      if (!warningShownToday) {
-        showWarning();
-        warningShownToday = true;
-      }
-    }
-
-    // 2. Check for Hard Cutoff
-    if (currentTotalMinutes >= cutoffTotalMinutes || currentHour < 6) { // Block late night/early morning access
-      triggerCutoff();
+  // Get active watch time log from localStorage
+  function getWatchLog() {
+    try {
+      return JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+    } catch(e) {
+      return [];
     }
   }
 
-  function showWarning() {
+  function saveWatchLog(log) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(log));
+  }
+
+  // Prune log entries older than the rolling window (3 hours)
+  function cleanOldLogs(log) {
+    const cutoffTime = Date.now() - (WINDOW_HOURS * 60 * 60 * 1000);
+    return log.filter(entry => entry.timestamp > cutoffTime);
+  }
+
+  // Calculate total watched seconds in current 3-hour window
+  function getWatchedSeconds() {
+    const log = cleanOldLogs(getWatchLog());
+    return log.reduce((sum, entry) => sum + entry.duration, 0);
+  }
+
+  // Record 1 second of watch time when video player is active
+  function tickWatchTime() {
+    const playerContainer = document.getElementById('player-container');
+    const isPlaying = playerContainer && 
+                      (playerContainer.style.display === 'block' || playerContainer.classList.contains('active'));
+
+    if (!isPlaying) return;
+
+    let log = cleanOldLogs(getWatchLog());
+    const now = Date.now();
+
+    // Group into 5-second chunks for local storage efficiency
+    if (log.length > 0 && (now - log[log.length - 1].timestamp) < 6000) {
+      log[log.length - 1].duration += 1;
+      log[log.length - 1].timestamp = now;
+    } else {
+      log.push({ timestamp: now, duration: 1 });
+    }
+
+    saveWatchLog(log);
+  }
+
+  function checkLimits() {
+    const now = new Date();
+    const currentTotalMinutes = now.getHours() * 60 + now.getMinutes();
+    const cutoffTotalMinutes = CUTOFF_HOUR * 60 + CUTOFF_MINUTE;
+    const bedtimeWarningMinutes = cutoffTotalMinutes - 5;
+
+    // 1. CHECK BEDTIME HARD CUTOFF (8:15 PM - 6:00 AM)
+    if (currentTotalMinutes >= cutoffTotalMinutes || now.getHours() < 6) {
+      showLockout("Bedtime Cutoff", "BoysTube is closed for the night. Time to get off screens!", "Unlocks at 6:00 AM");
+      triggerMediaStop();
+      return;
+    }
+
+    // 2. CHECK 3-HOUR ROLLING WATCH LIMIT
+    const watchedSeconds = getWatchedSeconds();
+    const maxAllowedSeconds = MAX_WATCH_MINUTES * 60;
+    const remainingSeconds = maxAllowedSeconds - watchedSeconds;
+
+    if (remainingSeconds <= 0) {
+      // Find when enough old viewing time expires to unlock
+      const log = cleanOldLogs(getWatchLog());
+      if (log.length > 0) {
+        const oldestEntry = log[0];
+        const unlockTime = oldestEntry.timestamp + (WINDOW_HOURS * 60 * 60 * 1000);
+        const diffMs = Math.max(0, unlockTime - Date.now());
+        const minsLeft = Math.ceil(diffMs / 60000);
+        showLockout("Watch Limit Reached", `You've watched ${MAX_WATCH_MINUTES} minutes in the last 3 hours. Time for a break!`, `Unlocks in: ~${minsLeft} min`);
+      } else {
+        showLockout("Watch Limit Reached", "Take a break from screens!", "Try again later");
+      }
+      triggerMediaStop();
+      return;
+    }
+
+    // Hide lockout screen if active and within limits
+    const lockoutScreen = document.getElementById('lockout-screen');
+    if (lockoutScreen) lockoutScreen.style.display = 'none';
+
+    // 3. CHECK WARNING TOASTS (5 Minutes Remaining)
+    // A. Bedtime Warning
+    if (currentTotalMinutes >= bedtimeWarningMinutes && currentTotalMinutes < cutoffTotalMinutes) {
+      if (warningShownType !== 'bedtime') {
+        showToast("🌙 5 minutes until bedtime cutoff!");
+        warningShownType = 'bedtime';
+      }
+    } 
+    // B. Watch Limit Warning (5 minutes / 300 seconds left)
+    else if (remainingSeconds <= 300 && remainingSeconds > 0) {
+      if (warningShownType !== 'timelimit') {
+        showToast("⏳ 5 minutes of watch time remaining!");
+        warningShownType = 'timelimit';
+      }
+    }
+  }
+
+  function showToast(message) {
     const toast = document.getElementById('bedtime-warning');
+    const toastText = document.getElementById('warning-text');
     const okBtn = document.getElementById('warning-ok-btn');
     if (!toast) return;
 
+    if (toastText) toastText.textContent = message;
     toast.style.display = 'flex';
     toast.style.alignItems = 'center';
     
-    // Fade in
     setTimeout(() => { toast.style.opacity = '1'; }, 50);
 
     const fadeOut = () => {
       toast.style.opacity = '0';
-      setTimeout(() => { toast.style.display = 'none'; }, 1000);
+      setTimeout(() => { toast.style.display = 'none'; }, 500);
     };
 
-    // Auto-fade after 4 seconds
-    const autoFadeTimer = setTimeout(fadeOut, 4000);
+    const autoFadeTimer = setTimeout(fadeOut, 5000);
 
-    // Fade early if 'OK' is clicked
     okBtn.onclick = () => {
       clearTimeout(autoFadeTimer);
       fadeOut();
     };
   }
 
-  function triggerCutoff() {
-    // Stop all active YouTube players / iframes
-    document.querySelectorAll('iframe').forEach(iframe => iframe.src = '');
-    document.querySelectorAll('video, audio').forEach(media => media.pause());
+  function showLockout(title, msg, timerText) {
+    const screen = document.getElementById('lockout-screen');
+    const titleEl = document.getElementById('lockout-title');
+    const msgEl = document.getElementById('lockout-msg');
+    const timerEl = document.getElementById('lockout-timer');
 
-    // Try closing the standalone browser window
-    window.close();
+    if (!screen) return;
 
-    // Fallback if browser blocks window.close()
-    setTimeout(() => {
-      window.location.href = 'about:blank';
-    }, 300);
+    if (titleEl) titleEl.textContent = title;
+    if (msgEl) msgEl.textContent = msg;
+    if (timerEl) timerEl.textContent = timerText;
+
+    screen.style.display = 'flex';
   }
 
-  // Check every 30 seconds
-  setInterval(checkBedtime, 3000);
-  checkBedtime(); // Initial execution
+  function triggerMediaStop() {
+    // Stop iframe video playback if playing
+    document.querySelectorAll('iframe').forEach(iframe => iframe.src = '');
+    document.querySelectorAll('video, audio').forEach(media => media.pause());
+    
+    // Trigger app.js showHome if defined
+    if (typeof window.showHome === 'function') {
+      window.showHome();
+    }
+  }
+
+  // Core Execution Timers
+  setInterval(tickWatchTime, 1000);  // Log watch time every 1s
+  setInterval(checkLimits, 3000);     // Check cutoffs every 3s
+  checkLimits();                      // Initial check on load
 })();
 </script>
