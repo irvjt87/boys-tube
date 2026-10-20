@@ -2,6 +2,10 @@ const API_KEY = 'AIzaSyDm-xk-2x0bDbW0FikDJDBMYT5t33QA6BQ';
 
 const ALLOWED_CHANNELS = [
     { id: 'PLlBVuTSjOrclb0iCMSRpS_H1lSrlSVeEm', name: 'Science Buddies-Elenco' },
+    { id: 'UUPOxZjoHULhsO95SRN4ScPg', name: 'Badgerland Birding' },
+    { id: 'UUKq3tXnvXnA0feJYmOx9MPw', name: 'The Wildlife Homestead' },
+    { id: 'UU5Lz88Rt3GT75YT2ORAmaMQ', name: 'Cornell Lab' },
+    { id: 'UUDjdXwT-KrFPsqOSg4KL8Nw', name: 'Lesley the Bird Nerd' },
     { id: 'UUR1p6wj-IYFiZ77D5zPy0jA', name: 'Captain Factory' },
     { id: 'UUDBRkd8deH-Vk1nWQKWJ72w', name: 'Captain Factory' },
     { id: 'UU1usuCeFHj1tQikOJ00SWyA', name: 'Patriot DIY' },
