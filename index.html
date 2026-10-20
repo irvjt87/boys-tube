@@ -203,8 +203,8 @@
   // -------------------------------------------------------------
   const CUTOFF_HOUR = 20;        // 8:00 PM (24hr format)
   const CUTOFF_MINUTE = 15;      // 15 minutes
-  const MAX_WATCH_MINUTES = 60;  // Allowed minutes
-  const WINDOW_HOURS = 3;        // Rolling window size in hours
+  const MAX_WATCH_MINUTES = 90;  // Allowed minutes
+  const WINDOW_HOURS = 4;        // Rolling window size in hours
   // -------------------------------------------------------------
 
   const STORAGE_KEY = 'boystube_watch_log_v1';
@@ -364,8 +364,8 @@
   }
 
   // Core Execution Timers
-  setInterval(tickWatchTime, 1000);  // Log watch time every 1s
-  setInterval(checkLimits, 3000);     // Check cutoffs every 3s
+  setInterval(tickWatchTime, 5000);  // Log watch time every 5s
+  setInterval(checkLimits, 10000);     // Check cutoffs every 10s
   checkLimits();                      // Initial check on load
 })();
 </script>
