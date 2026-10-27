@@ -255,11 +255,13 @@ function isEnglishVideo(item) {
     return true;
 }
 
+// 1. Load YouTube IFrame API (MUST be www.youtube.com)
 const tag = document.createElement('script');
-tag.src = "https://www.youtube-nocookie.com/iframe_api";
+tag.src = "https://www.youtube.com/iframe_api"; // <-- Do NOT change this to youtube-nocookie.com
 const firstScriptTag = document.getElementsByTagName('script')[0];
 firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
 
+// 2. Initialize Player with nocookie host option
 function onYouTubeIframeAPIReady() {
     const playerVarsObj = {
         'autoplay': 1,
@@ -280,7 +282,7 @@ function onYouTubeIframeAPIReady() {
         height: '360',
         width: '640',
         videoId: '38pP0_Z-kMw',
-        host: 'https://www.youtube-nocookie.com',
+        host: 'https://www.youtube-nocookie.com', // <-- Privacy mode is enforced HERE
         playerVars: playerVarsObj,
         events: {
             'onReady': onPlayerReady,
