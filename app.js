@@ -1,3 +1,6 @@
+// =============================================================
+// CONFIGURATION & SETUP
+// =============================================================
 const API_KEY = 'AIzaSyDm-xk-2x0bDbW0FikDJDBMYT5t33QA6BQ';
 
 const QUIET_START_MINUTES = (20 * 60) + 15; // 20:15 (8:15 PM)
@@ -57,16 +60,15 @@ const videoList = document.getElementById('video-list');
 const playerContainer = document.getElementById('player-container');
 
 let player = null;
-let isPlayerReady = false;
+let isAPIReady = false;
 let pendingVideoId = null;
-let currentPlayingLimit = 'none'; // Tracks active video's limit type
-let warningShownType = null;      // 'bedtime' or 'timelimit'
+let currentPlayingLimit = 'none';
+let warningShownType = null;
 
 // =============================================================
 // DEVICE PROFILE & CHANNEL FILTERING
 // =============================================================
 function getDeviceMode() {
-    // 1. Explicit URL parameter override (e.g., index.html?mode=mobile or index.html?mode=desktop)
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.has('mode')) {
         const mode = urlParams.get('mode').toLowerCase();
@@ -74,11 +76,9 @@ function getDeviceMode() {
         return mode;
     }
 
-    // 2. Saved preference in local storage
     const savedMode = localStorage.getItem(STORAGE_KEY_MODE);
     if (savedMode) return savedMode;
 
-    // 3. Fallback Auto-Detection (iOS / Mobile user agent / small screen)
     const ua = navigator.userAgent || '';
     const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
@@ -124,7 +124,6 @@ function getWatchedSeconds() {
     return log.reduce((sum, entry) => sum + entry.duration, 0);
 }
 
-// Only logs watch time if video playing is from a 'timed' channel
 function tickWatchTime() {
     const isPlaying = playerContainer && 
                       (playerContainer.style.display === 'block' || playerContainer.classList.contains('active')) &&
@@ -149,7 +148,6 @@ function checkLimits() {
     const now = new Date();
     const currentMinutes = (now.getHours() * 60) + now.getMinutes();
 
-    // 1. BEDTIME HARD CUTOFF (20:15 - 06:30) - Applies across ALL devices & channels
     const isQuietTime = (currentMinutes >= QUIET_START_MINUTES) || (currentMinutes < QUIET_END_MINUTES);
     if (isQuietTime) {
         showLockout("🌙", "Quiet Time", "BoysTube is off for the night. Time to get off screens!", "Unlocks at 6:30 AM");
@@ -157,7 +155,6 @@ function checkLimits() {
         return;
     }
 
-    // 2. WATCH TIME LIMIT (Desktop Timed Channels)
     const watchedSeconds = getWatchedSeconds();
     const maxAllowedSeconds = MAX_WATCH_MINUTES * 60;
     const remainingSeconds = maxAllowedSeconds - watchedSeconds;
@@ -175,11 +172,9 @@ function checkLimits() {
         return;
     }
 
-    // Clear lockout screen if active and within valid operating parameters
     const lockoutScreen = document.getElementById('lockout-screen');
     if (lockoutScreen) lockoutScreen.style.display = 'none';
 
-    // 3. WARNING TOAST NOTIFICATIONS (5-minute alerts)
     if (currentMinutes >= BEDTIME_WARN_MIN && currentMinutes < QUIET_START_MINUTES) {
         if (warningShownType !== 'bedtime') {
             showToast("🌙 5 minutes until quiet time!");
@@ -236,8 +231,9 @@ function showLockout(icon, title, msg, timerText) {
 }
 
 function triggerMediaStop() {
-    document.querySelectorAll('iframe').forEach(iframe => iframe.src = '');
-    document.querySelectorAll('video, audio').forEach(media => media.pause());
+    if (player && typeof player.stopVideo === 'function') {
+        try { player.stopVideo(); } catch(e) {}
+    }
     showHome();
 }
 
@@ -255,47 +251,15 @@ function isEnglishVideo(item) {
     return true;
 }
 
-// 1. Load YouTube IFrame API (MUST be www.youtube.com)
+// 1. Load YouTube IFrame API Script
 const tag = document.createElement('script');
-tag.src = "https://www.youtube.com/iframe_api"; // <-- Do NOT change this to youtube-nocookie.com
+tag.src = "https://www.youtube.com/iframe_api";
 const firstScriptTag = document.getElementsByTagName('script')[0];
 firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
 
-// 2. Initialize Player with nocookie host option
+// 2. Register API Readiness (Do NOT create player inside hidden container on load)
 function onYouTubeIframeAPIReady() {
-    // Fallback origin check for local serving vs web hosting
-    const currentOrigin = (window.location.protocol.startsWith('http')) 
-        ? window.location.origin 
-        : 'http://localhost';
-
-    const playerVarsObj = {
-        'autoplay': 1,
-        'rel': 0,
-        'modestbranding': 1,
-        'playsinline': 1, 
-        'fs': 0,          
-        'iv_load_policy': 3,
-        'enablejsapi': 1,
-        'cc_load_policy': 0,
-        'origin': currentOrigin
-    };
-
-    player = new YT.Player('video-player', {
-        height: '360',
-        width: '640',
-        videoId: '38pP0_Z-kMw',
-        host: 'https://www.youtube.com', // Use standard youtube.com to pass bot validation
-        playerVars: playerVarsObj,
-        events: {
-            'onReady': onPlayerReady,
-            'onStateChange': onPlayerStateChange,
-            'onError': onPlayerError
-        }
-    });
-}
-
-function onPlayerReady() {
-    isPlayerReady = true;
+    isAPIReady = true;
     if (pendingVideoId) {
         const vidToPlay = pendingVideoId;
         pendingVideoId = null;
@@ -303,11 +267,38 @@ function onPlayerReady() {
     }
 }
 
+function createYTPlayer(videoId) {
+    player = new YT.Player('video-player', {
+        height: '100%',
+        width: '100%',
+        videoId: videoId,
+        host: 'https://www.youtube.com',
+        playerVars: {
+            'autoplay': 1,
+            'rel': 0,
+            'modestbranding': 1,
+            'playsinline': 1, 
+            'fs': 0,          
+            'iv_load_policy': 3,
+            'enablejsapi': 1,
+            'cc_load_policy': 0,
+            'widget_referrer': window.location.href
+        },
+        events: {
+            'onReady': (event) => {
+                event.target.playVideo();
+            },
+            'onStateChange': onPlayerStateChange,
+            'onError': onPlayerError
+        }
+    });
+}
+
 function onPlayerError(event) {
-    if (event.data === 101 || event.data === 500) {
+    if (event.data === 101 || event.data === 500 || event.data === 150) {
         if (playerContainer) playerContainer.style.display = 'none';
         if (player && typeof player.stopVideo === 'function') player.stopVideo();
-        alert("The video owner disabled embedded playback for this video.");
+        alert("Embedded playback is restricted for this video.");
     }
 }
 
@@ -318,7 +309,7 @@ function onPlayerStateChange(event) {
                 player.setOption('captions', 'track', {});
             }
         } catch (e) {
-            console.warn("Caption disable error skipped:", e);
+            console.warn("Caption disable skipped:", e);
         }
     }
 
@@ -335,8 +326,8 @@ function showHome() {
     const backBtn = document.getElementById('back-btn');
     if (backBtn) backBtn.style.display = 'none';
     
-    if (player && isPlayerReady && typeof player.stopVideo === 'function') {
-        player.stopVideo();
+    if (player && typeof player.stopVideo === 'function') {
+        try { player.stopVideo(); } catch(e) {}
     }
     
     const header = document.getElementById('page-title');
@@ -435,7 +426,7 @@ async function fetchChannelVideos(playlistId, name, limitType) {
 
         let realVideos = allItems.filter(item => {
             const duration = durationMap[item.snippet.resourceId.videoId] || 0;
-            return duration >= 60; // Exclude YouTube Shorts
+            return duration >= 60; // Exclude Shorts
         });
 
         if (playlistId === 'UUPfldVy-GUtV-0n7n9v_xhg') {
@@ -485,7 +476,6 @@ function renderChannelView(videos, name, limitType) {
 function playVideo(videoId, limitType) {
     currentPlayingLimit = limitType || 'none';
 
-    // Enforce active watch limit before initiating playback on timed channels
     if (currentPlayingLimit === 'timed') {
         const watchedSeconds = getWatchedSeconds();
         if (watchedSeconds >= (MAX_WATCH_MINUTES * 60)) {
@@ -494,24 +484,30 @@ function playVideo(videoId, limitType) {
         }
     }
 
-    if (!isPlayerReady || !player) {
-        pendingVideoId = videoId;
-        return;
-    }
-
+    // 1. Unhide container FIRST so YouTube sees visible viewport dimensions
     if (playerContainer) {
-        playerContainer.classList.add('active');
         playerContainer.style.display = 'block';
+        playerContainer.classList.add('active');
     }
     
     const backBtn = document.getElementById('back-btn');
     if (backBtn) backBtn.style.display = 'block';
-    
-    if (typeof player.loadVideoById === 'function') {
-        player.loadVideoById({
-            videoId: videoId,
-            suggestedQuality: 'hd720'
-        });
+
+    // 2. Construct or update player dynamically
+    if (!isAPIReady) {
+        pendingVideoId = videoId;
+        return;
+    }
+
+    if (!player) {
+        createYTPlayer(videoId);
+    } else {
+        if (typeof player.loadVideoById === 'function') {
+            player.loadVideoById({
+                videoId: videoId,
+                suggestedQuality: 'hd720'
+            });
+        }
     }
 }
 
