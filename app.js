@@ -1,75 +1,265 @@
 const API_KEY = 'AIzaSyDm-xk-2x0bDbW0FikDJDBMYT5t33QA6BQ';
 
+const QUIET_START_MINUTES = (20 * 60) + 15; // 20:15 (8:15 PM)
+const QUIET_END_MINUTES   = (6 * 60) + 30;  // 06:30 (6:30 AM)
+const BEDTIME_WARN_MIN    = (20 * 60) + 10; // 20:10 (8:10 PM)
+
+const MAX_WATCH_MINUTES   = 90;              // Allowed watch limit for timed channels
+const WINDOW_HOURS        = 4;               // Rolling window size in hours
+const STORAGE_KEY_LOG     = 'boystube_watch_log_v2';
+const STORAGE_KEY_MODE    = 'boystube_device_mode';
+
 const ALLOWED_CHANNELS = [
-    { id: 'PLlBVuTSjOrclb0iCMSRpS_H1lSrlSVeEm', name: 'Science Buddies-Elenco' },
-    { id: 'UUPOxZjoHULhsO95SRN4ScPg', name: 'Badgerland Birding' },
-    { id: 'UUKq3tXnvXnA0feJYmOx9MPw', name: 'The Wildlife Homestead' },
-    { id: 'UU5Lz88Rt3GT75YT2ORAmaMQ', name: 'Cornell Lab' },
-    { id: 'UUDjdXwT-KrFPsqOSg4KL8Nw', name: 'Lesley the Bird Nerd' },
-    { id: 'UUR1p6wj-IYFiZ77D5zPy0jA', name: 'Captain Factory' },
-    { id: 'UUDBRkd8deH-Vk1nWQKWJ72w', name: 'Captain Factory' },
-    { id: 'UU1usuCeFHj1tQikOJ00SWyA', name: 'Patriot DIY' },
-    { id: 'UU3-GqvQtVl0x5o3TiQi2gCg', name: 'Meyer Makes' },
-    { id: 'UUkMCoe_j9MEtkGh9zsZGzLw', name: 'Wild Birds Unlimited' },
-    { id: 'UUfpCQ89W9wjkHc8J_6eTbBg', name: 'Outdoor Boys' },
-    { id: 'UUiLW00N3_Qe5yazpDk8xxjA', name: 'Outdoor Tom' },
-    { id: 'PLLb4Aujw26R6FsJJ3py4ponBlBxp0UnRA', name: 'Discovery UK' },
-    { id: 'UUIMXKin1fXXCeq2UJePJEog', name: 'My Self Reliance' },
-    { id: 'UUNepEAWZH0TBu7dkxIbluDw', name: 'Dad, How Do I?' },
-    { id: 'UUq0fxytZwEYul4AmfEiXL_w', name: 'Zen Garden Oasis' },
-    { id: 'UUasG9kJWi1eVxM0QkyqKVJQ', name: 'Hand Tool Rescue' },
-    { id: 'UUUtWNBWbFL9We-cdXkiAuJA', name: 'This Old House' },
-    { id: 'PLU6AbyBWHPOtBBMOm7HwK2dEvGkrnpZvy', name: 'Prager-Trailblazers' },
-    { id: 'PLU6AbyBWHPOsDaw5dQ4VVNVlhWKe0MaCx', name: 'Prager-Hustle' },
-    { id: 'PLU6AbyBWHPOuH5OQLqaSi2xZqth4WTW_c', name: 'Prager-History' },
-    { id: 'PLU6AbyBWHPOsqu6Oylcqp0GoOdAAETK72', name: 'Prager-U.S.Citizenship' },
-    { id: 'PLU6AbyBWHPOvJNhiuJ2oKLOg77Udus7Fs', name: 'Prager-Cash Course' },
-    { id: 'UUs7ywDt1v4zHhn7sfCao-lQ', name: 'Sam Eckholm' },
-    { id: 'UUShDR6hPfOqyUjMbasOrb8w', name: 'Warrior Kids' },
-    { id: 'UUzWn_gTaXyH5Idyo8Raf7_A', name: 'Catfish and Carp' },
-    { id: 'UU8H3lzJU5Qm-s3WVroB87kw', name: 'AWMI' },
-    { id: 'UU8TdKeCw11lF9QYX33wmWeQ', name: 'Rick McFarland - River Rock' },
-    { id: 'UUmPBWknVW9b4oCkgtqnfCyA', name: 'Greg Mohr' },
-    { id: 'UUPfldVy-GUtV-0n7n9v_xhg', name: 'Keith Moore Faith Life' },
-    { id: 'UUsljKOcYKll4vQmvPOsovkQ', name: 'Charis' },
-    { id: 'UUxrLpZPsYKvE7qSiULRaT7g', name: 'GTN' },
-    { id: 'UUZA2cbFAHOcwY3V1T6tLfYQ', name: 'Barry Bennett' },
-    { id: 'UU9tPS5igk3NOyDP0XLX96bw', name: 'Duck Dynasty' },
-    { id: 'UUEDp4UbPxHjGT7B1cRZXt_w', name: 'Shotgun Scientists' },
-    { id: 'UUfU5tYD7fuHC9E4DaxsTH-g', name: 'Stalekracker' },
-    { id: 'UUHstNaT6R-1zA0lBU_XBr_Q', name: 'Marines' }
+    // ALWAYS ALLOWED (Mobile + Desktop; No watch time logging)
+    { id: 'UUPOxZjoHULhsO95SRN4ScPg', name: 'Badgerland Birding', limit: 'none' },
+    { id: 'UU5Lz88Rt3GT75YT2ORAmaMQ', name: 'Cornell Lab', limit: 'none' },
+    { id: 'UUDjdXwT-KrFPsqOSg4KL8Nw', name: 'Lesley the Bird Nerd', limit: 'none' },
+    { id: 'UUkMCoe_j9MEtkGh9zsZGzLw', name: 'Wild Birds Unlimited', limit: 'none' },
+    { id: 'PLlBVuTSjOrclb0iCMSRpS_H1lSrlSVeEm', name: 'Science Buddies-Elenco', limit: 'none' },
+    { id: 'UUNepEAWZH0TBu7dkxIbluDw', name: 'Dad, How Do I?', limit: 'none' },
+    { id: 'UU1usuCeFHj1tQikOJ00SWyA', name: 'Patriot DIY', limit: 'none' },
+    { id: 'UU3-GqvQtVl0x5o3TiQi2gCg', name: 'Meyer Makes', limit: 'none' },
+    { id: 'UUq0fxytZwEYul4AmfEiXL_w', name: 'Zen Garden Oasis', limit: 'none' },
+    { id: 'UUasG9kJWi1eVxM0QkyqKVJQ', name: 'Hand Tool Rescue', limit: 'none' },
+    { id: 'UUUtWNBWbFL9We-cdXkiAuJA', name: 'This Old House', limit: 'none' },
+    { id: 'UUs7ywDt1v4zHhn7sfCao-lQ', name: 'Sam Eckholm', limit: 'none' },
+    { id: 'UUShDR6hPfOqyUjMbasOrb8w', name: 'Warrior Kids', limit: 'none' },
+    { id: 'UU8H3lzJU5Qm-s3WVroB87kw', name: 'AWMI', limit: 'none' },
+    { id: 'UU8TdKeCw11lF9QYX33wmWeQ', name: 'Rick McFarland - River Rock', limit: 'none' },
+    { id: 'UUmPBWknVW9b4oCkgtqnfCyA', name: 'Greg Mohr', limit: 'none' },
+    { id: 'UUPfldVy-GUtV-0n7n9v_xhg', name: 'Keith Moore Faith Life', limit: 'none' },
+    { id: 'UUsljKOcYKll4vQmvPOsovkQ', name: 'Charis', limit: 'none' },
+    { id: 'UUxrLpZPsYKvE7qSiULRaT7g', name: 'GTN', limit: 'none' },
+    { id: 'UUZA2cbFAHOcwY3V1T6tLfYQ', name: 'Barry Bennett', limit: 'none' },
+
+    // TIMED ENTERTAINMENT (Desktop/Windows Only; Subject to 90-min rolling limit)
+    { id: 'UUKq3tXnvXnA0feJYmOx9MPw', name: 'The Wildlife Homestead', limit: 'timed' },
+    { id: 'UUR1p6wj-IYFiZ77D5zPy0jA', name: 'Captain Factory', limit: 'timed' },
+    { id: 'UUDBRkd8deH-Vk1nWQKWJ72w', name: 'Captain Factory 2', limit: 'timed' },
+    { id: 'UUfpCQ89W9wjkHc8J_6eTbBg', name: 'Outdoor Boys', limit: 'timed' },
+    { id: 'UUiLW00N3_Qe5yazpDk8xxjA', name: 'Outdoor Tom', limit: 'timed' },
+    { id: 'PLLb4Aujw26R6FsJJ3py4ponBlBxp0UnRA', name: 'Discovery UK', limit: 'timed' },
+    { id: 'UUIMXKin1fXXCeq2UJePJEog', name: 'My Self Reliance', limit: 'timed' },
+    { id: 'PLU6AbyBWHPOtBBMOm7HwK2dEvGkrnpZvy', name: 'Prager-Trailblazers', limit: 'timed' },
+    { id: 'PLU6AbyBWHPOsDaw5dQ4VVNVlhWKe0MaCx', name: 'Prager-Hustle', limit: 'timed' },
+    { id: 'PLU6AbyBWHPOuH5OQLqaSi2xZqth4WTW_c', name: 'Prager-History', limit: 'timed' },
+    { id: 'PLU6AbyBWHPOsqu6Oylcqp0GoOdAAETK72', name: 'Prager-U.S.Citizenship', limit: 'timed' },
+    { id: 'PLU6AbyBWHPOvJNhiuJ2oKLOg77Udus7Fs', name: 'Prager-Cash Course', limit: 'timed' },
+    { id: 'UUzWn_gTaXyH5Idyo8Raf7_A', name: 'Catfish and Carp', limit: 'timed' },
+    { id: 'UU9tPS5igk3NOyDP0XLX96bw', name: 'Duck Dynasty', limit: 'timed' },
+    { id: 'UUEDp4UbPxHjGT7B1cRZXt_w', name: 'Shotgun Scientists', limit: 'timed' },
+    { id: 'UUfU5tYD7fuHC9E4DaxsTH-g', name: 'Stalekracker', limit: 'timed' },
+    { id: 'UUHstNaT6R-1zA0lBU_XBr_Q', name: 'Marines', limit: 'timed' }
 ];
 
-const MAX_PAGES = 3; 
+const MAX_PAGES = 3;
 const videoList = document.getElementById('video-list');
 const playerContainer = document.getElementById('player-container');
 
 let player = null;
 let isPlayerReady = false;
 let pendingVideoId = null;
+let currentPlayingLimit = 'none'; // Tracks active video's limit type
+let warningShownType = null;      // 'bedtime' or 'timelimit'
 
-// Helper: Filter non-English titles & translations for targeted channel
+// =============================================================
+// DEVICE PROFILE & CHANNEL FILTERING
+// =============================================================
+function getDeviceMode() {
+    // 1. Explicit URL parameter override (e.g., index.html?mode=mobile or index.html?mode=desktop)
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.has('mode')) {
+        const mode = urlParams.get('mode').toLowerCase();
+        localStorage.setItem(STORAGE_KEY_MODE, mode);
+        return mode;
+    }
+
+    // 2. Saved preference in local storage
+    const savedMode = localStorage.getItem(STORAGE_KEY_MODE);
+    if (savedMode) return savedMode;
+
+    // 3. Fallback Auto-Detection (iOS / Mobile user agent / small screen)
+    const ua = navigator.userAgent || '';
+    const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    const isMobileUA = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
+    
+    return (isIOS || isMobileUA || window.innerWidth < 768) ? 'mobile' : 'desktop';
+}
+
+function getVisibleChannels() {
+    const mode = getDeviceMode();
+    const modeIndicator = document.getElementById('mode-indicator');
+    
+    if (mode === 'mobile') {
+        if (modeIndicator) modeIndicator.textContent = "Mobile (Always-On Only)";
+        return ALLOWED_CHANNELS.filter(c => c.limit === 'none');
+    }
+    
+    if (modeIndicator) modeIndicator.textContent = "Desktop (All Channels)";
+    return ALLOWED_CHANNELS;
+}
+
+// =============================================================
+// WATCH LOG & TIME LIMIT SYSTEM
+// =============================================================
+function getWatchLog() {
+    try {
+        return JSON.parse(localStorage.getItem(STORAGE_KEY_LOG)) || [];
+    } catch(e) {
+        return [];
+    }
+}
+
+function saveWatchLog(log) {
+    localStorage.setItem(STORAGE_KEY_LOG, JSON.stringify(log));
+}
+
+function cleanOldLogs(log) {
+    const cutoffTime = Date.now() - (WINDOW_HOURS * 60 * 60 * 1000);
+    return log.filter(entry => entry.timestamp > cutoffTime);
+}
+
+function getWatchedSeconds() {
+    const log = cleanOldLogs(getWatchLog());
+    return log.reduce((sum, entry) => sum + entry.duration, 0);
+}
+
+// Only logs watch time if video playing is from a 'timed' channel
+function tickWatchTime() {
+    const isPlaying = playerContainer && 
+                      (playerContainer.style.display === 'block' || playerContainer.classList.contains('active')) &&
+                      currentPlayingLimit === 'timed';
+
+    if (!isPlaying) return;
+
+    let log = cleanOldLogs(getWatchLog());
+    const now = Date.now();
+
+    if (log.length > 0 && (now - log[log.length - 1].timestamp) < 6000) {
+        log[log.length - 1].duration += 1;
+        log[log.length - 1].timestamp = now;
+    } else {
+        log.push({ timestamp: now, duration: 1 });
+    }
+
+    saveWatchLog(log);
+}
+
+function checkLimits() {
+    const now = new Date();
+    const currentMinutes = (now.getHours() * 60) + now.getMinutes();
+
+    // 1. BEDTIME HARD CUTOFF (20:15 - 06:30) - Applies across ALL devices & channels
+    const isQuietTime = (currentMinutes >= QUIET_START_MINUTES) || (currentMinutes < QUIET_END_MINUTES);
+    if (isQuietTime) {
+        showLockout("🌙", "Quiet Time", "BoysTube is off for the night. Time to get off screens!", "Unlocks at 6:30 AM");
+        triggerMediaStop();
+        return;
+    }
+
+    // 2. WATCH TIME LIMIT (Desktop Timed Channels)
+    const watchedSeconds = getWatchedSeconds();
+    const maxAllowedSeconds = MAX_WATCH_MINUTES * 60;
+    const remainingSeconds = maxAllowedSeconds - watchedSeconds;
+
+    if (remainingSeconds <= 0 && currentPlayingLimit === 'timed') {
+        const log = cleanOldLogs(getWatchLog());
+        let timerText = "Try again later";
+        if (log.length > 0) {
+            const unlockTime = log[0].timestamp + (WINDOW_HOURS * 60 * 60 * 1000);
+            const minsLeft = Math.ceil(Math.max(0, unlockTime - Date.now()) / 60000);
+            timerText = `Unlocks in: ~${minsLeft} min`;
+        }
+        showLockout("⏳", "Watch Limit Reached", `You've used ${MAX_WATCH_MINUTES} minutes of timed watch time. Take a break!`, timerText);
+        triggerMediaStop();
+        return;
+    }
+
+    // Clear lockout screen if active and within valid operating parameters
+    const lockoutScreen = document.getElementById('lockout-screen');
+    if (lockoutScreen) lockoutScreen.style.display = 'none';
+
+    // 3. WARNING TOAST NOTIFICATIONS (5-minute alerts)
+    if (currentMinutes >= BEDTIME_WARN_MIN && currentMinutes < QUIET_START_MINUTES) {
+        if (warningShownType !== 'bedtime') {
+            showToast("🌙 5 minutes until quiet time!");
+            warningShownType = 'bedtime';
+        }
+    } else if (remainingSeconds <= 300 && remainingSeconds > 0 && currentPlayingLimit === 'timed') {
+        if (warningShownType !== 'timelimit') {
+            showToast("⏳ 5 minutes of watch time remaining!");
+            warningShownType = 'timelimit';
+        }
+    }
+}
+
+function showToast(message) {
+    const toast = document.getElementById('bedtime-warning');
+    const toastText = document.getElementById('warning-text');
+    const okBtn = document.getElementById('warning-ok-btn');
+    if (!toast) return;
+
+    if (toastText) toastText.textContent = message;
+    toast.style.display = 'flex';
+    toast.style.alignItems = 'center';
+    
+    setTimeout(() => { toast.style.opacity = '1'; }, 50);
+
+    const fadeOut = () => {
+        toast.style.opacity = '0';
+        setTimeout(() => { toast.style.display = 'none'; }, 500);
+    };
+
+    const autoFadeTimer = setTimeout(fadeOut, 5000);
+
+    okBtn.onclick = () => {
+        clearTimeout(autoFadeTimer);
+        fadeOut();
+    };
+}
+
+function showLockout(icon, title, msg, timerText) {
+    const screen = document.getElementById('lockout-screen');
+    const iconEl = document.getElementById('lockout-icon');
+    const titleEl = document.getElementById('lockout-title');
+    const msgEl = document.getElementById('lockout-msg');
+    const timerEl = document.getElementById('lockout-timer');
+
+    if (!screen) return;
+
+    if (iconEl) iconEl.textContent = icon;
+    if (titleEl) titleEl.textContent = title;
+    if (msgEl) msgEl.textContent = msg;
+    if (timerEl) timerEl.textContent = timerText;
+
+    screen.style.display = 'flex';
+}
+
+function triggerMediaStop() {
+    document.querySelectorAll('iframe').forEach(iframe => iframe.src = '');
+    document.querySelectorAll('video, audio').forEach(media => media.pause());
+    showHome();
+}
+
+// =============================================================
+// YOUTUBE PLAYER & APP NAVIGATION
+// =============================================================
 function isEnglishVideo(item) {
     const title = item.snippet?.title || '';
-    
-    // 1. Check for explicit language tags in parentheses or title text
     const langRegex = /\b(Vietnamese|Turkish|Thai|Swahili|Spanish|Español|French|Français|German|Deutsch|Russian|Portuguese|Hindi|Arabic|Italian|Tagalog|Korean|Chinese|Japanese|Farsi|Urdu)\b/i;
     if (langRegex.test(title)) return false;
 
-    // 2. Check for non-Latin scripts (Thai, Cyrillic, Arabic, Devanagari, CJK) and specific foreign diacritics
     const nonEnglishScriptRegex = /[\u0e00-\u0e7f\u0400-\u04FF\u0600-\u06FF\u0900-\u097F\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fffİıĞğŞşÇçÖöÜü]/;
     if (nonEnglishScriptRegex.test(title)) return false;
 
     return true;
 }
 
-// 1. Load YouTube IFrame API
 const tag = document.createElement('script');
 tag.src = "https://www.youtube.com/iframe_api";
 const firstScriptTag = document.getElementsByTagName('script')[0];
 firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
 
-// 2. Initialize Player
 function onYouTubeIframeAPIReady() {
     const playerVarsObj = {
         'autoplay': 1,
@@ -100,12 +290,12 @@ function onYouTubeIframeAPIReady() {
     });
 }
 
-function onPlayerReady(event) {
+function onPlayerReady() {
     isPlayerReady = true;
     if (pendingVideoId) {
         const vidToPlay = pendingVideoId;
         pendingVideoId = null;
-        playVideo(vidToPlay);
+        playVideo(vidToPlay, currentPlayingLimit);
     }
 }
 
@@ -133,7 +323,6 @@ function onPlayerStateChange(event) {
     }
 }
 
-// 4. Show Home View
 function showHome() {
     if (playerContainer) {
         playerContainer.classList.remove('active');
@@ -146,12 +335,14 @@ function showHome() {
         player.stopVideo();
     }
     
-    const header = document.querySelector('h2');
+    const header = document.getElementById('page-title');
     if (header) header.innerText = "Pick a Channel";
     
     if (videoList) videoList.innerHTML = '';
 
-    ALLOWED_CHANNELS.forEach(channel => {
+    const visibleChannels = getVisibleChannels();
+
+    visibleChannels.forEach(channel => {
         const folder = document.createElement('div');
         folder.className = 'video-card';
         
@@ -178,20 +369,19 @@ function showHome() {
             <div class="video-title" style="text-align:center; font-weight:bold; padding: 10px 0;">${channel.name}</div>
         `;
         
-        folder.onclick = () => fetchChannelVideos(channel.id, channel.name);
+        folder.onclick = () => fetchChannelVideos(channel.id, channel.name, channel.limit);
         if (videoList) videoList.appendChild(folder);
     });
 }
 
-// 5. Fetch Channel Videos
-async function fetchChannelVideos(playlistId, name) {
+async function fetchChannelVideos(playlistId, name, limitType) {
     const cacheKey = `cache_v2_${playlistId}`;
     const cachedData = localStorage.getItem(cacheKey);
     const cacheTime = localStorage.getItem(`${cacheKey}_time`);
 
     if (cachedData && cacheTime && (Date.now() - Number(cacheTime) < 14400000)) {
         try {
-            renderChannelView(JSON.parse(cachedData), name);
+            renderChannelView(JSON.parse(cachedData), name, limitType);
             return;
         } catch (e) {
             localStorage.removeItem(cacheKey);
@@ -241,10 +431,9 @@ async function fetchChannelVideos(playlistId, name) {
 
         let realVideos = allItems.filter(item => {
             const duration = durationMap[item.snippet.resourceId.videoId] || 0;
-            return duration >= 60; 
+            return duration >= 60; // Exclude YouTube Shorts
         });
 
-        // Enforce language audit specifically for Keith Moore Faith Life channel
         if (playlistId === 'UUPfldVy-GUtV-0n7n9v_xhg') {
             realVideos = realVideos.filter(isEnglishVideo);
         }
@@ -252,7 +441,7 @@ async function fetchChannelVideos(playlistId, name) {
         if (realVideos.length > 0) {
             localStorage.setItem(cacheKey, JSON.stringify(realVideos));
             localStorage.setItem(`${cacheKey}_time`, Date.now().toString());
-            renderChannelView(realVideos, name);
+            renderChannelView(realVideos, name, limitType);
         } else {
             if (videoList) videoList.innerHTML = '<p style="padding:20px;">No matching videos found.</p>';
         }
@@ -271,9 +460,8 @@ function parseISO8601Duration(duration) {
     return (hours * 3600) + (minutes * 60) + seconds;
 }
 
-// 6. Grid View
-function renderChannelView(videos, name) {
-    const header = document.querySelector('h2');
+function renderChannelView(videos, name, limitType) {
+    const header = document.getElementById('page-title');
     if (header) header.innerHTML = `<span onclick="showHome()" style="color:#3498db; cursor:pointer;">← Back</span> | ${name}`;
     if (videoList) videoList.innerHTML = '';
     
@@ -285,13 +473,23 @@ function renderChannelView(videos, name) {
             <img class="video-thumb" src="${video.snippet.thumbnails.medium.url}">
             <div class="video-title">${video.snippet.title}</div>
         `;
-        card.onclick = () => playVideo(videoId);
+        card.onclick = () => playVideo(videoId, limitType);
         if (videoList) videoList.appendChild(card);
     });
 }
 
-// 7. Play Video
-function playVideo(videoId) {
+function playVideo(videoId, limitType) {
+    currentPlayingLimit = limitType || 'none';
+
+    // Enforce active watch limit before initiating playback on timed channels
+    if (currentPlayingLimit === 'timed') {
+        const watchedSeconds = getWatchedSeconds();
+        if (watchedSeconds >= (MAX_WATCH_MINUTES * 60)) {
+            checkLimits();
+            return;
+        }
+    }
+
     if (!isPlayerReady || !player) {
         pendingVideoId = videoId;
         return;
@@ -313,4 +511,8 @@ function playVideo(videoId) {
     }
 }
 
+// Execution Timers
+setInterval(tickWatchTime, 5000); // Record watch time every 5s for timed channels
+setInterval(checkLimits, 10000);   // Check cutoff limits every 10s
+checkLimits();                      // Initial check on load
 showHome();
