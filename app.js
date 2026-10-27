@@ -263,6 +263,11 @@ firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
 
 // 2. Initialize Player with nocookie host option
 function onYouTubeIframeAPIReady() {
+    // Fallback origin check for local serving vs web hosting
+    const currentOrigin = (window.location.protocol.startsWith('http')) 
+        ? window.location.origin 
+        : 'http://localhost';
+
     const playerVarsObj = {
         'autoplay': 1,
         'rel': 0,
@@ -271,18 +276,15 @@ function onYouTubeIframeAPIReady() {
         'fs': 0,          
         'iv_load_policy': 3,
         'enablejsapi': 1,
-        'cc_load_policy': 0
+        'cc_load_policy': 0,
+        'origin': currentOrigin
     };
-
-    if (window.location.protocol.startsWith('http')) {
-        playerVarsObj.origin = window.location.origin;
-    }
 
     player = new YT.Player('video-player', {
         height: '360',
         width: '640',
         videoId: '38pP0_Z-kMw',
-        host: 'https://www.youtube-nocookie.com', // <-- Privacy mode is enforced HERE
+        host: 'https://www.youtube.com', // Use standard youtube.com to pass bot validation
         playerVars: playerVarsObj,
         events: {
             'onReady': onPlayerReady,
