@@ -268,6 +268,11 @@ function onYouTubeIframeAPIReady() {
 }
 
 function createYTPlayer(videoId) {
+    // Determine exact HTTPS origin for GitHub Pages domain handshake
+    const cleanOrigin = window.location.origin && window.location.origin !== 'null'
+        ? window.location.origin
+        : 'http://localhost';
+
     player = new YT.Player('video-player', {
         height: '100%',
         width: '100%',
@@ -282,7 +287,7 @@ function createYTPlayer(videoId) {
             'iv_load_policy': 3,
             'enablejsapi': 1,
             'cc_load_policy': 0,
-            'widget_referrer': window.location.href
+            'origin': cleanOrigin
         },
         events: {
             'onReady': (event) => {
