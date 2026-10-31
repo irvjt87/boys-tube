@@ -280,7 +280,7 @@ function createYTPlayer(videoId) {
         videoId: videoId,
         host: 'https://www.youtube.com',
         playerVars: {
-            'autoplay': 1,
+            'autoplay': 0,
             'rel': 0,
             'modestbranding': 1,
             'playsinline': 1, 
@@ -292,7 +292,6 @@ function createYTPlayer(videoId) {
         },
         events: {
             'onReady': (event) => {
-                event.target.playVideo();
             },
             'onStateChange': onPlayerStateChange,
             'onError': onPlayerError
@@ -301,11 +300,21 @@ function createYTPlayer(videoId) {
 }
 
 function onPlayerError(event) {
-    if (event.data === 101 || event.data === 500 || event.data === 150) {
-        if (playerContainer) playerContainer.style.display = 'none';
-        if (player && typeof player.stopVideo === 'function') player.stopVideo();
-        alert("Embedded playback is restricted for this video.");
+    const code = event.data;
+
+    let reason = "Unknown player error.";
+
+    if (code === 153) {
+        reason = "Missing or rejected referrer identification.";
+    } else if (code === 101 || code === 150) {
+        reason = "YouTube has rejected embedded playback.";
+    } else if (code === 5) {
+        reason = "HTML5 playback error.";
     }
+
+    console.error("BoysTube YouTube error:", code, reason);
+
+    alert("BoysTube Error " + code + "\n" + reason);
 }
 
 function onPlayerStateChange(event) {
