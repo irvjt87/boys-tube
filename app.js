@@ -52,7 +52,8 @@ const ALLOWED_CHANNELS = [
     { id: 'UU9tPS5igk3NOyDP0XLX96bw', name: 'Duck Dynasty', limit: 'timed' },
     { id: 'UUEDp4UbPxHjGT7B1cRZXt_w', name: 'Shotgun Scientists', limit: 'timed' },
     { id: 'UUfU5tYD7fuHC9E4DaxsTH-g', name: 'Stalekracker', limit: 'timed' },
-    { id: 'UUHstNaT6R-1zA0lBU_XBr_Q', name: 'Marines', limit: 'timed' }
+    { id: 'UUHstNaT6R-1zA0lBU_XBr_Q', name: 'Marines', limit: 'timed' },
+    { id: 'UUpuofAxlrUAgnu7QEwKQwxw', name: 'DoW', limit: 'timed'}
 ];
 
 const MAX_PAGES = 3;
