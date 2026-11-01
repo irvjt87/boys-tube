@@ -12,6 +12,14 @@ const WINDOW_HOURS        = 4;               // Rolling window size in hours
 const STORAGE_KEY_LOG     = 'boystube_watch_log_v2';
 const STORAGE_KEY_MODE    = 'boystube_device_mode';
 
+// Reliable Piped instances for stream extraction (bypasses youtube.com)
+const PIPED_INSTANCES = [
+    'https://pipedapi.kavin.rocks',
+    'https://api.piped.privacydev.net',
+    'https://pipedapi.drgns.space',
+    'https://pipedapi.mha.fi'
+];
+
 const ALLOWED_CHANNELS = [
     // ALWAYS ALLOWED (Mobile + Desktop; No watch time logging)
     { id: 'UUPOxZjoHULhsO95SRN4ScPg', name: 'Badgerland Birding', limit: 'none' },
@@ -59,12 +67,15 @@ const ALLOWED_CHANNELS = [
 const MAX_PAGES = 3;
 const videoList = document.getElementById('video-list');
 const playerContainer = document.getElementById('player-container');
+const videoElement = document.getElementById('video-player');
 
-let player = null;
-let isAPIReady = false;
-let pendingVideoId = null;
 let currentPlayingLimit = 'none';
 let warningShownType = null;
+
+// Bind HTML5 video end event to return home automatically
+if (videoElement) {
+    videoElement.addEventListener('ended', showHome);
+}
 
 // =============================================================
 // DEVICE PROFILE & CHANNEL FILTERING
@@ -127,7 +138,8 @@ function getWatchedSeconds() {
 
 function tickWatchTime() {
     const isPlaying = playerContainer && 
-                      (playerContainer.style.display === 'block' || playerContainer.classList.contains('active')) &&
+                      playerContainer.classList.contains('active') &&
+                      videoElement && !videoElement.paused &&
                       currentPlayingLimit === 'timed';
 
     if (!isPlaying) return;
@@ -232,103 +244,81 @@ function showLockout(icon, title, msg, timerText) {
 }
 
 function triggerMediaStop() {
-    if (player && typeof player.stopVideo === 'function') {
-        try { player.stopVideo(); } catch(e) {}
+    if (videoElement) {
+        videoElement.pause();
+        videoElement.removeAttribute('src');
+        videoElement.load();
     }
     showHome();
 }
 
 // =============================================================
-// YOUTUBE PLAYER & APP NAVIGATION
+// STREAM EXTRACTION & PLAYBACK (NO YOUTUBE.COM REQUIRED)
 // =============================================================
-function isEnglishVideo(item) {
-    const title = item.snippet?.title || '';
-    const langRegex = /\b(Vietnamese|Turkish|Thai|Swahili|Spanish|Español|French|Français|German|Deutsch|Russian|Portuguese|Hindi|Arabic|Italian|Tagalog|Korean|Chinese|Japanese|Farsi|Urdu)\b/i;
-    if (langRegex.test(title)) return false;
-
-    const nonEnglishScriptRegex = /[\u0e00-\u0e7f\u0400-\u04FF\u0600-\u06FF\u0900-\u097F\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fffİıĞğŞşÇçÖöÜü]/;
-    if (nonEnglishScriptRegex.test(title)) return false;
-
-    return true;
-}
-
-// 1. Load YouTube IFrame API Script
-const tag = document.createElement('script');
-tag.src = "https://www.youtube.com/iframe_api";
-const firstScriptTag = document.getElementsByTagName('script')[0];
-firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
-
-// 2. Register API Readiness (Do NOT create player inside hidden container on load)
-function onYouTubeIframeAPIReady() {
-    isAPIReady = true;
-    if (pendingVideoId) {
-        const vidToPlay = pendingVideoId;
-        pendingVideoId = null;
-        playVideo(vidToPlay, currentPlayingLimit);
-    }
-}
-
-function createYTPlayer(videoId) {
-    // Determine exact HTTPS origin for GitHub Pages domain handshake
-    const cleanOrigin = window.location.origin && window.location.origin !== 'null'
-        ? window.location.origin
-        : 'http://localhost';
-
-    player = new YT.Player('video-player', {
-        height: '100%',
-        width: '100%',
-        videoId: videoId,
-        host: 'https://www.youtube.com',
-        playerVars: {
-            'autoplay': 0,
-            'rel': 0,
-            'modestbranding': 1,
-            'playsinline': 1, 
-            'fs': 0,          
-            'iv_load_policy': 3,
-            'enablejsapi': 1,
-            'cc_load_policy': 0,
-            'origin': cleanOrigin
-        },
-        events: {
-            'onReady': (event) => {
-            },
-            'onStateChange': onPlayerStateChange,
-            'onError': onPlayerError
-        }
-    });
-}
-
-function onPlayerError(event) {
-    const code = event.data;
-
-    let reason = "Unknown player error.";
-
-    if (code === 153) {
-        reason = "Missing or rejected referrer identification.";
-    } else if (code === 101 || code === 150) {
-        reason = "YouTube has rejected embedded playback.";
-    } else if (code === 5) {
-        reason = "HTML5 playback error.";
-    }
-
-    console.error("BoysTube YouTube error:", code, reason);
-
-    alert("BoysTube Error " + code + "\n" + reason);
-}
-
-function onPlayerStateChange(event) {
-    if (event.data === YT.PlayerState.PLAYING) {
+async function resolveStreamUrl(videoId) {
+    for (const baseUrl of PIPED_INSTANCES) {
         try {
-            if (player && typeof player.setOption === 'function') {
-                player.setOption('captions', 'track', {});
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 4000);
+
+            const res = await fetch(`${baseUrl}/streams/${videoId}`, { signal: controller.signal });
+            clearTimeout(timeoutId);
+
+            if (!res.ok) continue;
+            const data = await res.json();
+
+            // 1. Prefer HLS Manifest for native iOS streaming
+            if (data.hls) return data.hls;
+
+            // 2. Fallback to combined 720p/1080p MP4 stream
+            if (data.videoStreams && data.videoStreams.length > 0) {
+                const combined = data.videoStreams.filter(s => s.videoOnly === false);
+                if (combined.length > 0) {
+                    const pref = combined.find(s => s.quality === '720p') || combined[0];
+                    return pref.url;
+                }
             }
         } catch (e) {
-            console.warn("Caption disable skipped:", e);
+            console.warn(`Piped instance ${baseUrl} failed, trying next...`);
+        }
+    }
+    return null;
+}
+
+async function playVideo(videoId, limitType) {
+    currentPlayingLimit = limitType || 'none';
+
+    if (currentPlayingLimit === 'timed') {
+        const watchedSeconds = getWatchedSeconds();
+        if (watchedSeconds >= (MAX_WATCH_MINUTES * 60)) {
+            checkLimits();
+            return;
         }
     }
 
-    if (event.data === YT.PlayerState.ENDED) {
+    if (playerContainer) {
+        playerContainer.classList.remove('hidden-player');
+        playerContainer.classList.add('active');
+    }
+    
+    const backBtn = document.getElementById('back-btn');
+    if (backBtn) backBtn.style.display = 'block';
+
+    if (videoElement) {
+        videoElement.pause();
+        videoElement.removeAttribute('src');
+    }
+
+    // Resolve direct media stream via Piped proxies
+    const streamUrl = await resolveStreamUrl(videoId);
+
+    if (streamUrl && videoElement) {
+        videoElement.src = streamUrl;
+        videoElement.play().catch(err => {
+            console.warn("Autoplay blocked, user tap required:", err);
+        });
+    } else {
+        alert("Failed to load video stream. Please check network connection.");
         showHome();
     }
 }
@@ -336,13 +326,15 @@ function onPlayerStateChange(event) {
 function showHome() {
     if (playerContainer) {
         playerContainer.classList.remove('active');
-        playerContainer.style.display = 'none';
+        playerContainer.classList.add('hidden-player');
     }
     const backBtn = document.getElementById('back-btn');
     if (backBtn) backBtn.style.display = 'none';
     
-    if (player && typeof player.stopVideo === 'function') {
-        try { player.stopVideo(); } catch(e) {}
+    if (videoElement) {
+        videoElement.pause();
+        videoElement.removeAttribute('src');
+        videoElement.load();
     }
     
     const header = document.getElementById('page-title');
@@ -382,6 +374,20 @@ function showHome() {
         folder.onclick = () => fetchChannelVideos(channel.id, channel.name, channel.limit);
         if (videoList) videoList.appendChild(folder);
     });
+}
+
+// =============================================================
+// DATA CATALOG FETCHING (API KEY via GOOGLEAPIS.COM)
+// =============================================================
+function isEnglishVideo(item) {
+    const title = item.snippet?.title || '';
+    const langRegex = /\b(Vietnamese|Turkish|Thai|Swahili|Spanish|Español|French|Français|German|Deutsch|Russian|Portuguese|Hindi|Arabic|Italian|Tagalog|Korean|Chinese|Japanese|Farsi|Urdu)\b/i;
+    if (langRegex.test(title)) return false;
+
+    const nonEnglishScriptRegex = /[\u0e00-\u0e7f\u0400-\u04FF\u0600-\u06FF\u0900-\u097F\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fffİıĞğŞşÇçÖöÜü]/;
+    if (nonEnglishScriptRegex.test(title)) return false;
+
+    return true;
 }
 
 async function fetchChannelVideos(playlistId, name, limitType) {
@@ -486,44 +492,6 @@ function renderChannelView(videos, name, limitType) {
         card.onclick = () => playVideo(videoId, limitType);
         if (videoList) videoList.appendChild(card);
     });
-}
-
-function playVideo(videoId, limitType) {
-    currentPlayingLimit = limitType || 'none';
-
-    if (currentPlayingLimit === 'timed') {
-        const watchedSeconds = getWatchedSeconds();
-        if (watchedSeconds >= (MAX_WATCH_MINUTES * 60)) {
-            checkLimits();
-            return;
-        }
-    }
-
-    // 1. Unhide container FIRST so YouTube sees visible viewport dimensions
-    if (playerContainer) {
-        playerContainer.style.display = 'block';
-        playerContainer.classList.add('active');
-    }
-    
-    const backBtn = document.getElementById('back-btn');
-    if (backBtn) backBtn.style.display = 'block';
-
-    // 2. Construct or update player dynamically
-    if (!isAPIReady) {
-        pendingVideoId = videoId;
-        return;
-    }
-
-    if (!player) {
-        createYTPlayer(videoId);
-    } else {
-        if (typeof player.loadVideoById === 'function') {
-            player.loadVideoById({
-                videoId: videoId,
-                suggestedQuality: 'hd720'
-            });
-        }
-    }
 }
 
 // Execution Timers
