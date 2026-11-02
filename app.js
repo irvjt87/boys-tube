@@ -244,7 +244,8 @@ function showLockout(icon, title, msg, timerText) {
 }
 
 function triggerMediaStop() {
-    if (videoElement) {
+    // Defensive check ensures we only call pause() if it is a valid media element
+    if (videoElement && typeof videoElement.pause === 'function') {
         videoElement.pause();
         videoElement.removeAttribute('src');
         videoElement.load();
@@ -304,7 +305,7 @@ async function playVideo(videoId, limitType) {
     const backBtn = document.getElementById('back-btn');
     if (backBtn) backBtn.style.display = 'block';
 
-    if (videoElement) {
+    if (videoElement && typeof videoElement.pause === 'function') {
         videoElement.pause();
         videoElement.removeAttribute('src');
     }
@@ -312,7 +313,7 @@ async function playVideo(videoId, limitType) {
     // Resolve direct media stream via Piped proxies
     const streamUrl = await resolveStreamUrl(videoId);
 
-    if (streamUrl && videoElement) {
+    if (streamUrl && videoElement && typeof videoElement.play === 'function') {
         videoElement.src = streamUrl;
         videoElement.play().catch(err => {
             console.warn("Autoplay blocked, user tap required:", err);
@@ -331,7 +332,7 @@ function showHome() {
     const backBtn = document.getElementById('back-btn');
     if (backBtn) backBtn.style.display = 'none';
     
-    if (videoElement) {
+    if (videoElement && typeof videoElement.pause === 'function') {
         videoElement.pause();
         videoElement.removeAttribute('src');
         videoElement.load();
