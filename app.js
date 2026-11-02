@@ -254,41 +254,68 @@ function triggerMediaStop() {
 }
 
 // =============================================================
-// STREAM EXTRACTION & PLAYBACK (NO YOUTUBE.COM REQUIRED)
+// YOUTUBE IFRAME PLAYER (SANDBOXED)
 // =============================================================
-async function resolveStreamUrl(videoId) {
-    for (const baseUrl of PIPED_INSTANCES) {
-        try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 4000);
 
-            const res = await fetch(`${baseUrl}/streams/${videoId}`, { signal: controller.signal });
-            clearTimeout(timeoutId);
+// 1. Inject API dynamically
+let isAPIReady = false;
+let ytPlayer = null;
 
-            if (!res.ok) continue;
-            const data = await res.json();
+const tag = document.createElement('script');
+tag.src = "https://www.youtube.com/iframe_api";
+document.head.appendChild(tag);
 
-            // 1. Prefer HLS Manifest for native iOS streaming
-            if (data.hls) return data.hls;
+function onYouTubeIframeAPIReady() {
+    isAPIReady = true;
+    
+    // Explicit origin ensures GitHub Pages handshake succeeds
+    const cleanOrigin = window.location.origin && window.location.origin !== 'null'
+        ? window.location.origin
+        : 'http://localhost';
 
-            // 2. Fallback to combined 720p/1080p MP4 stream
-            if (data.videoStreams && data.videoStreams.length > 0) {
-                const combined = data.videoStreams.filter(s => s.videoOnly === false);
-                if (combined.length > 0) {
-                    const pref = combined.find(s => s.quality === '720p') || combined[0];
-                    return pref.url;
-                }
-            }
-        } catch (e) {
-            console.warn(`Piped instance ${baseUrl} failed, trying next...`);
+    ytPlayer = new YT.Player('video-player', {
+        height: '100%',
+        width: '100%',
+        videoId: '',
+        host: 'https://www.youtube-nocookie.com', // Strict privacy host
+        playerVars: {
+            'autoplay': 1,
+            'rel': 0,             // No related videos from other channels
+            'modestbranding': 1,  // Remove YouTube logo
+            'playsinline': 1,     // Required for iOS WebKit
+            'fs': 0,              // Disable fullscreen button
+            'iv_load_policy': 3,  // Disable annotations
+            'enablejsapi': 1,
+            'cc_load_policy': 0,
+            'origin': cleanOrigin,
+            'widget_referrer': cleanOrigin
+        },
+        events: {
+            'onStateChange': onPlayerStateChange,
+            'onError': onPlayerError
         }
-    }
-    return null;
+    });
 }
 
-async function playVideo(videoId, limitType) {
+function onPlayerError(event) {
+    console.error("YouTube Player Error:", event.data);
+    triggerMediaStop();
+    alert("This video restricts embedded playback. Please pick another.");
+}
+
+function onPlayerStateChange(event) {
+    if (event.data === YT.PlayerState.PLAYING) {
+        try { ytPlayer.setOption('captions', 'track', {}); } catch (e) {}
+    }
+    if (event.data === YT.PlayerState.ENDED) {
+        showHome();
+    }
+}
+
+function playVideo(videoId, limitType) {
     currentPlayingLimit = limitType || 'none';
 
+    // Check watch limits before executing playback
     if (currentPlayingLimit === 'timed') {
         const watchedSeconds = getWatchedSeconds();
         if (watchedSeconds >= (MAX_WATCH_MINUTES * 60)) {
@@ -297,6 +324,7 @@ async function playVideo(videoId, limitType) {
         }
     }
 
+    // Unhide container to pass viewport dimension checks
     if (playerContainer) {
         playerContainer.classList.remove('hidden-player');
         playerContainer.classList.add('active');
@@ -305,78 +333,18 @@ async function playVideo(videoId, limitType) {
     const backBtn = document.getElementById('back-btn');
     if (backBtn) backBtn.style.display = 'block';
 
-    if (videoElement && typeof videoElement.pause === 'function') {
-        videoElement.pause();
-        videoElement.removeAttribute('src');
-    }
-
-    // Resolve direct media stream via Piped proxies
-    const streamUrl = await resolveStreamUrl(videoId);
-
-    if (streamUrl && videoElement && typeof videoElement.play === 'function') {
-        videoElement.src = streamUrl;
-        videoElement.play().catch(err => {
-            console.warn("Autoplay blocked, user tap required:", err);
-        });
-    } else {
-        alert("Failed to load video stream. Please check network connection.");
-        showHome();
+    // Synchronous execution passes iOS user-gesture requirements
+    if (isAPIReady && ytPlayer && typeof ytPlayer.loadVideoById === 'function') {
+        ytPlayer.loadVideoById(videoId);
     }
 }
 
-function showHome() {
-    if (playerContainer) {
-        playerContainer.classList.remove('active');
-        playerContainer.classList.add('hidden-player');
+function triggerMediaStop() {
+    if (ytPlayer && typeof ytPlayer.stopVideo === 'function') {
+        try { ytPlayer.stopVideo(); } catch(e) {}
     }
-    const backBtn = document.getElementById('back-btn');
-    if (backBtn) backBtn.style.display = 'none';
-    
-    if (videoElement && typeof videoElement.pause === 'function') {
-        videoElement.pause();
-        videoElement.removeAttribute('src');
-        videoElement.load();
-    }
-    
-    const header = document.getElementById('page-title');
-    if (header) header.innerText = "Pick a Channel";
-    
-    if (videoList) videoList.innerHTML = '';
-
-    const visibleChannels = getVisibleChannels();
-
-    visibleChannels.forEach(channel => {
-        const folder = document.createElement('div');
-        folder.className = 'video-card';
-        
-        const cacheKey = `cache_v2_${channel.id}`;
-        const cachedData = localStorage.getItem(cacheKey);
-        let folderThumb = 'https://i.ytimg.com/vi/38pP0_Z-kMw/mqdefault.jpg';
-        
-        if (cachedData) {
-            try {
-                const parsed = JSON.parse(cachedData);
-                if (Array.isArray(parsed) && parsed.length > 0 && parsed[0].snippet?.thumbnails?.medium?.url) {
-                    folderThumb = parsed[0].snippet.thumbnails.medium.url;
-                }
-            } catch (e) {
-                console.error("Cache parsing error", e);
-            }
-        }
-
-        folder.innerHTML = `
-            <div style="position:relative;">
-                <img class="video-thumb" src="${folderThumb}" style="border: 3px solid #333; filter: brightness(0.7);">
-                <div style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); font-weight:bold; font-size:18px; text-shadow: 2px 2px 4px #000; color:#fff;">OPEN</div>
-            </div>
-            <div class="video-title" style="text-align:center; font-weight:bold; padding: 10px 0;">${channel.name}</div>
-        `;
-        
-        folder.onclick = () => fetchChannelVideos(channel.id, channel.name, channel.limit);
-        if (videoList) videoList.appendChild(folder);
-    });
+    showHome();
 }
-
 // =============================================================
 // DATA CATALOG FETCHING (API KEY via GOOGLEAPIS.COM)
 // =============================================================
