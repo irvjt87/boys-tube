@@ -12,14 +12,6 @@ const WINDOW_HOURS        = 4;               // Rolling window size in hours
 const STORAGE_KEY_LOG     = 'boystube_watch_log_v2';
 const STORAGE_KEY_MODE    = 'boystube_device_mode';
 
-// Reliable Piped instances for stream extraction (bypasses youtube.com)
-const PIPED_INSTANCES = [
-    'https://pipedapi.kavin.rocks',
-    'https://api.piped.privacydev.net',
-    'https://pipedapi.drgns.space',
-    'https://pipedapi.mha.fi'
-];
-
 const ALLOWED_CHANNELS = [
     // ALWAYS ALLOWED (Mobile + Desktop; No watch time logging)
     { id: 'UUPOxZjoHULhsO95SRN4ScPg', name: 'Badgerland Birding', limit: 'none' },
@@ -67,15 +59,11 @@ const ALLOWED_CHANNELS = [
 const MAX_PAGES = 3;
 const videoList = document.getElementById('video-list');
 const playerContainer = document.getElementById('player-container');
-const videoElement = document.getElementById('video-player');
 
+let isAPIReady = false;
+let ytPlayer = null;
 let currentPlayingLimit = 'none';
 let warningShownType = null;
-
-// Bind HTML5 video end event to return home automatically
-if (videoElement) {
-    videoElement.addEventListener('ended', showHome);
-}
 
 // =============================================================
 // DEVICE PROFILE & CHANNEL FILTERING
@@ -137,12 +125,16 @@ function getWatchedSeconds() {
 }
 
 function tickWatchTime() {
-    const isPlaying = playerContainer && 
-                      playerContainer.classList.contains('active') &&
-                      videoElement && !videoElement.paused &&
-                      currentPlayingLimit === 'timed';
+    // 1. Verify YouTube Player exists and is in the PLAYING state (1)
+    let isPlaying = false;
+    if (typeof YT !== 'undefined' && ytPlayer && typeof ytPlayer.getPlayerState === 'function') {
+        isPlaying = (ytPlayer.getPlayerState() === YT.PlayerState.PLAYING);
+    }
 
-    if (!isPlaying) return;
+    const isPlayerActive = playerContainer && playerContainer.classList.contains('active');
+
+    // 2. Only log time if video is playing, overlay is active, and channel is 'timed'
+    if (!isPlaying || !isPlayerActive || currentPlayingLimit !== 'timed') return;
 
     let log = cleanOldLogs(getWatchLog());
     const now = Date.now();
@@ -161,6 +153,7 @@ function checkLimits() {
     const now = new Date();
     const currentMinutes = (now.getHours() * 60) + now.getMinutes();
 
+    // Bedtime Check
     const isQuietTime = (currentMinutes >= QUIET_START_MINUTES) || (currentMinutes < QUIET_END_MINUTES);
     if (isQuietTime) {
         showLockout("🌙", "Quiet Time", "BoysTube is off for the night. Time to get off screens!", "Unlocks at 6:30 AM");
@@ -168,6 +161,7 @@ function checkLimits() {
         return;
     }
 
+    // Timed Channel Watch Limit Check
     const watchedSeconds = getWatchedSeconds();
     const maxAllowedSeconds = MAX_WATCH_MINUTES * 60;
     const remainingSeconds = maxAllowedSeconds - watchedSeconds;
@@ -188,6 +182,7 @@ function checkLimits() {
     const lockoutScreen = document.getElementById('lockout-screen');
     if (lockoutScreen) lockoutScreen.style.display = 'none';
 
+    // Warnings
     if (currentMinutes >= BEDTIME_WARN_MIN && currentMinutes < QUIET_START_MINUTES) {
         if (warningShownType !== 'bedtime') {
             showToast("🌙 5 minutes until quiet time!");
@@ -243,24 +238,11 @@ function showLockout(icon, title, msg, timerText) {
     screen.style.display = 'flex';
 }
 
-function triggerMediaStop() {
-    // Defensive check ensures we only call pause() if it is a valid media element
-    if (videoElement && typeof videoElement.pause === 'function') {
-        videoElement.pause();
-        videoElement.removeAttribute('src');
-        videoElement.load();
-    }
-    showHome();
-}
-
 // =============================================================
 // YOUTUBE IFRAME PLAYER (SANDBOXED)
 // =============================================================
 
-// 1. Inject API dynamically
-let isAPIReady = false;
-let ytPlayer = null;
-
+// Inject API dynamically
 const tag = document.createElement('script');
 tag.src = "https://www.youtube.com/iframe_api";
 document.head.appendChild(tag);
@@ -268,7 +250,6 @@ document.head.appendChild(tag);
 function onYouTubeIframeAPIReady() {
     isAPIReady = true;
     
-    // Explicit origin ensures GitHub Pages handshake succeeds
     const cleanOrigin = window.location.origin && window.location.origin !== 'null'
         ? window.location.origin
         : 'http://localhost';
@@ -277,14 +258,14 @@ function onYouTubeIframeAPIReady() {
         height: '100%',
         width: '100%',
         videoId: '',
-        host: 'https://www.youtube-nocookie.com', // Strict privacy host
+        host: 'https://www.youtube-nocookie.com',
         playerVars: {
             'autoplay': 1,
-            'rel': 0,             // No related videos from other channels
-            'modestbranding': 1,  // Remove YouTube logo
-            'playsinline': 1,     // Required for iOS WebKit
-            'fs': 0,              // Disable fullscreen button
-            'iv_load_policy': 3,  // Disable annotations
+            'rel': 0,             
+            'modestbranding': 1,  
+            'playsinline': 1,     
+            'fs': 0,              
+            'iv_load_policy': 3,  
             'enablejsapi': 1,
             'cc_load_policy': 0,
             'origin': cleanOrigin,
@@ -315,7 +296,6 @@ function onPlayerStateChange(event) {
 function playVideo(videoId, limitType) {
     currentPlayingLimit = limitType || 'none';
 
-    // Check watch limits before executing playback
     if (currentPlayingLimit === 'timed') {
         const watchedSeconds = getWatchedSeconds();
         if (watchedSeconds >= (MAX_WATCH_MINUTES * 60)) {
@@ -324,7 +304,6 @@ function playVideo(videoId, limitType) {
         }
     }
 
-    // Unhide container to pass viewport dimension checks
     if (playerContainer) {
         playerContainer.classList.remove('hidden-player');
         playerContainer.classList.add('active');
@@ -333,7 +312,6 @@ function playVideo(videoId, limitType) {
     const backBtn = document.getElementById('back-btn');
     if (backBtn) backBtn.style.display = 'block';
 
-    // Synchronous execution passes iOS user-gesture requirements
     if (isAPIReady && ytPlayer && typeof ytPlayer.loadVideoById === 'function') {
         ytPlayer.loadVideoById(videoId);
     }
@@ -345,6 +323,58 @@ function triggerMediaStop() {
     }
     showHome();
 }
+
+function showHome() {
+    if (playerContainer) {
+        playerContainer.classList.remove('active');
+        playerContainer.classList.add('hidden-player');
+    }
+    const backBtn = document.getElementById('back-btn');
+    if (backBtn) backBtn.style.display = 'none';
+    
+    if (ytPlayer && typeof ytPlayer.stopVideo === 'function') {
+        try { ytPlayer.stopVideo(); } catch(e) {}
+    }
+    
+    const header = document.getElementById('page-title');
+    if (header) header.innerText = "Pick a Channel";
+    
+    if (videoList) videoList.innerHTML = '';
+
+    const visibleChannels = getVisibleChannels();
+
+    visibleChannels.forEach(channel => {
+        const folder = document.createElement('div');
+        folder.className = 'video-card';
+        
+        const cacheKey = `cache_v2_${channel.id}`;
+        const cachedData = localStorage.getItem(cacheKey);
+        let folderThumb = 'https://i.ytimg.com/vi/38pP0_Z-kMw/mqdefault.jpg';
+        
+        if (cachedData) {
+            try {
+                const parsed = JSON.parse(cachedData);
+                if (Array.isArray(parsed) && parsed.length > 0 && parsed[0].snippet?.thumbnails?.medium?.url) {
+                    folderThumb = parsed[0].snippet.thumbnails.medium.url;
+                }
+            } catch (e) {
+                console.error("Cache parsing error", e);
+            }
+        }
+
+        folder.innerHTML = `
+            <div style="position:relative;">
+                <img class="video-thumb" src="${folderThumb}" style="border: 3px solid #333; filter: brightness(0.7);">
+                <div style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); font-weight:bold; font-size:18px; text-shadow: 2px 2px 4px #000; color:#fff;">OPEN</div>
+            </div>
+            <div class="video-title" style="text-align:center; font-weight:bold; padding: 10px 0;">${channel.name}</div>
+        `;
+        
+        folder.onclick = () => fetchChannelVideos(channel.id, channel.name, channel.limit);
+        if (videoList) videoList.appendChild(folder);
+    });
+}
+
 // =============================================================
 // DATA CATALOG FETCHING (API KEY via GOOGLEAPIS.COM)
 // =============================================================
