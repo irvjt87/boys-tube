@@ -7,17 +7,22 @@ const QUIET_START_MINUTES = (20 * 60) + 15; // 20:15 (8:15 PM)
 const QUIET_END_MINUTES   = (6 * 60) + 30;  // 06:30 (6:30 AM)
 const BEDTIME_WARN_MIN    = (20 * 60) + 10; // 20:10 (8:10 PM)
 
-const MAX_WATCH_MINUTES   = 90;              // Allowed watch limit for timed channels
-const WINDOW_HOURS        = 4;               // Rolling window size in hours
+const MAX_WATCH_MINUTES   = 90;               // Allowed watch limit for timed channels
+const WINDOW_HOURS        = 4;                // Rolling window size in hours
 const STORAGE_KEY_LOG     = 'boystube_watch_log_v2';
 const STORAGE_KEY_MODE    = 'boystube_device_mode';
+const STORAGE_KEY_WATCHED = 'boystube_watched_videos_v1';
+const CACHE_TTL_MS        = 14400000;         // 4 hours
 
 const ALLOWED_CHANNELS = [
     // ALWAYS ALLOWED (Mobile + Desktop; No watch time logging)
     { id: 'UUPOxZjoHULhsO95SRN4ScPg', name: 'Badgerland Birding', limit: 'none' },
+    { id: 'UUkUlhi62gcJaSM8K4oKmwxw', name: 'Badgerland Birding Extras', limit: 'none' },
+    { id: 'UUuL60_Ko4m9xCaa4QDNgJrw', name: 'Bird Watching HQ', limit: 'none' },
     { id: 'UU5Lz88Rt3GT75YT2ORAmaMQ', name: 'Cornell Lab', limit: 'none' },
     { id: 'UUDjdXwT-KrFPsqOSg4KL8Nw', name: 'Lesley the Bird Nerd', limit: 'none' },
     { id: 'UUkMCoe_j9MEtkGh9zsZGzLw', name: 'Wild Birds Unlimited', limit: 'none' },
+    { id: 'UU1QwrenXUp09s05EhFH-Hmw', name: 'Warbler Ridge Birds', limit: 'none' },
     { id: 'PLlBVuTSjOrclb0iCMSRpS_H1lSrlSVeEm', name: 'Science Buddies-Elenco', limit: 'none' },
     { id: 'UUNepEAWZH0TBu7dkxIbluDw', name: 'Dad, How Do I?', limit: 'none' },
     { id: 'UU1usuCeFHj1tQikOJ00SWyA', name: 'Patriot DIY', limit: 'none' },
@@ -53,17 +58,72 @@ const ALLOWED_CHANNELS = [
     { id: 'UUEDp4UbPxHjGT7B1cRZXt_w', name: 'Shotgun Scientists', limit: 'timed' },
     { id: 'UUfU5tYD7fuHC9E4DaxsTH-g', name: 'Stalekracker', limit: 'timed' },
     { id: 'UUHstNaT6R-1zA0lBU_XBr_Q', name: 'Marines', limit: 'timed' },
-    { id: 'UUpuofAxlrUAgnu7QEwKQwxw', name: 'DoW', limit: 'timed'}
+    { id: 'UUpuofAxlrUAgnu7QEwKQwxw', name: 'DoW', limit: 'timed' }
 ];
 
-const MAX_PAGES = 3;
 const videoList = document.getElementById('video-list');
 const playerContainer = document.getElementById('player-container');
+const scrollSentinel = document.getElementById('scroll-sentinel');
+const unwatchedToggleBtn = document.getElementById('unwatched-toggle');
 
 let isAPIReady = false;
 let ytPlayer = null;
 let currentPlayingLimit = 'none';
 let warningShownType = null;
+let hideWatchedOnly = false;
+
+// Active Channel Pagination State
+let activeSessionId = 0;
+let activeChannel = null; // { id, name, limit, nextPageToken, items, isFetching }
+
+// =============================================================
+// WATCHED VIDEO TRACKING & FILTERING
+// =============================================================
+function getWatchedSet() {
+    try {
+        const raw = JSON.parse(localStorage.getItem(STORAGE_KEY_WATCHED)) || [];
+        return new Set(raw);
+    } catch (e) {
+        return new Set();
+    }
+}
+
+function markVideoWatched(videoId) {
+    const watched = getWatchedSet();
+    watched.add(videoId);
+    // Keep last 3,000 watched IDs (~45 KB max)
+    const trimmed = Array.from(watched).slice(-3000);
+    try {
+        localStorage.setItem(STORAGE_KEY_WATCHED, JSON.stringify(trimmed));
+    } catch (e) {}
+
+    const card = document.querySelector(`.video-card[data-video-id="${videoId}"]`);
+    if (card && !card.classList.contains('watched')) {
+        card.classList.add('watched');
+        const badge = document.createElement('div');
+        badge.className = 'watched-badge';
+        badge.textContent = '✓ Watched';
+        card.appendChild(badge);
+    }
+}
+
+function toggleUnwatchedFilter() {
+    hideWatchedOnly = !hideWatchedOnly;
+    if (videoList) {
+        videoList.classList.toggle('hide-watched', hideWatchedOnly);
+    }
+    if (unwatchedToggleBtn) {
+        unwatchedToggleBtn.classList.toggle('active', hideWatchedOnly);
+        unwatchedToggleBtn.textContent = hideWatchedOnly ? 'Showing Unwatched' : 'Hide Watched';
+    }
+    // If hiding watched videos cleared the viewport, auto-pull older pages
+    if (hideWatchedOnly && activeChannel && activeChannel.nextPageToken) {
+        const visibleCards = videoList.querySelectorAll('.video-card:not(.watched)').length;
+        if (visibleCards < 12) {
+            loadMoreChannelVideos();
+        }
+    }
+}
 
 // =============================================================
 // DEVICE PROFILE & CHANNEL FILTERING
@@ -105,7 +165,7 @@ function getVisibleChannels() {
 function getWatchLog() {
     try {
         return JSON.parse(localStorage.getItem(STORAGE_KEY_LOG)) || [];
-    } catch(e) {
+    } catch (e) {
         return [];
     }
 }
@@ -125,25 +185,23 @@ function getWatchedSeconds() {
 }
 
 function tickWatchTime() {
-    // 1. Verify YouTube Player exists and is in the PLAYING state (1)
     let isPlaying = false;
     if (typeof YT !== 'undefined' && ytPlayer && typeof ytPlayer.getPlayerState === 'function') {
         isPlaying = (ytPlayer.getPlayerState() === YT.PlayerState.PLAYING);
     }
 
     const isPlayerActive = playerContainer && playerContainer.classList.contains('active');
-
-    // 2. Only log time if video is playing, overlay is active, and channel is 'timed'
     if (!isPlaying || !isPlayerActive || currentPlayingLimit !== 'timed') return;
 
     let log = cleanOldLogs(getWatchLog());
     const now = Date.now();
 
-    if (log.length > 0 && (now - log[log.length - 1].timestamp) < 6000) {
-        log[log.length - 1].duration += 1;
+    // Interval runs every 5000ms -> add 5 seconds of elapsed watch time
+    if (log.length > 0 && (now - log[log.length - 1].timestamp) < 7000) {
+        log[log.length - 1].duration += 5;
         log[log.length - 1].timestamp = now;
     } else {
-        log.push({ timestamp: now, duration: 1 });
+        log.push({ timestamp: now, duration: 5 });
     }
 
     saveWatchLog(log);
@@ -241,8 +299,6 @@ function showLockout(icon, title, msg, timerText) {
 // =============================================================
 // YOUTUBE IFRAME PLAYER (SANDBOXED)
 // =============================================================
-
-// Inject API dynamically
 const tag = document.createElement('script');
 tag.src = "https://www.youtube.com/iframe_api";
 document.head.appendChild(tag);
@@ -250,7 +306,7 @@ document.head.appendChild(tag);
 function onYouTubeIframeAPIReady() {
     isAPIReady = true;
     
-    const cleanOrigin = window.location.origin && window.location.origin !== 'null'
+    const cleanOrigin = (window.location.origin && window.location.origin.startsWith('http'))
         ? window.location.origin
         : 'http://localhost';
 
@@ -304,6 +360,8 @@ function playVideo(videoId, limitType) {
         }
     }
 
+    markVideoWatched(videoId);
+
     if (playerContainer) {
         playerContainer.classList.remove('hidden-player');
         playerContainer.classList.add('active');
@@ -319,27 +377,40 @@ function playVideo(videoId, limitType) {
 
 function triggerMediaStop() {
     if (ytPlayer && typeof ytPlayer.stopVideo === 'function') {
-        try { ytPlayer.stopVideo(); } catch(e) {}
+        try { ytPlayer.stopVideo(); } catch (e) {}
     }
     showHome();
 }
 
 function showHome() {
+    activeSessionId++;
+    activeChannel = null;
+
     if (playerContainer) {
         playerContainer.classList.remove('active');
         playerContainer.classList.add('hidden-player');
     }
     const backBtn = document.getElementById('back-btn');
     if (backBtn) backBtn.style.display = 'none';
+
+    if (unwatchedToggleBtn) {
+        unwatchedToggleBtn.style.display = 'none';
+    }
+    if (scrollSentinel) {
+        scrollSentinel.textContent = '';
+    }
     
     if (ytPlayer && typeof ytPlayer.stopVideo === 'function') {
-        try { ytPlayer.stopVideo(); } catch(e) {}
+        try { ytPlayer.stopVideo(); } catch (e) {}
     }
     
     const header = document.getElementById('page-title');
     if (header) header.innerText = "Pick a Channel";
     
-    if (videoList) videoList.innerHTML = '';
+    if (videoList) {
+        videoList.classList.remove('hide-watched');
+        videoList.innerHTML = '';
+    }
 
     const visibleChannels = getVisibleChannels();
 
@@ -347,39 +418,36 @@ function showHome() {
         const folder = document.createElement('div');
         folder.className = 'video-card';
         
-        const cacheKey = `cache_v2_${channel.id}`;
+        const cacheKey = `cache_v3_${channel.id}`;
         const cachedData = localStorage.getItem(cacheKey);
         let folderThumb = 'https://i.ytimg.com/vi/38pP0_Z-kMw/mqdefault.jpg';
         
         if (cachedData) {
             try {
                 const parsed = JSON.parse(cachedData);
-                if (Array.isArray(parsed) && parsed.length > 0 && parsed[0].snippet?.thumbnails?.medium?.url) {
-                    folderThumb = parsed[0].snippet.thumbnails.medium.url;
+                if (parsed?.items?.length > 0 && parsed.items[0].thumb) {
+                    folderThumb = parsed.items[0].thumb;
                 }
-            } catch (e) {
-                console.error("Cache parsing error", e);
-            }
+            } catch (e) {}
         }
 
         folder.innerHTML = `
             <div style="position:relative;">
-                <img class="video-thumb" src="${folderThumb}" style="border: 3px solid #333; filter: brightness(0.7);">
+                <img class="video-thumb" loading="lazy" src="${folderThumb}" style="border: 3px solid #333; filter: brightness(0.7);">
                 <div style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); font-weight:bold; font-size:18px; text-shadow: 2px 2px 4px #000; color:#fff;">OPEN</div>
             </div>
             <div class="video-title" style="text-align:center; font-weight:bold; padding: 10px 0;">${channel.name}</div>
         `;
         
-        folder.onclick = () => fetchChannelVideos(channel.id, channel.name, channel.limit);
+        folder.onclick = () => openChannel(channel.id, channel.name, channel.limit);
         if (videoList) videoList.appendChild(folder);
     });
 }
 
 // =============================================================
-// DATA CATALOG FETCHING (API KEY via GOOGLEAPIS.COM)
+// UNCAPPED PAGINATED DATA CATALOG FETCHING
 // =============================================================
-function isEnglishVideo(item) {
-    const title = item.snippet?.title || '';
+function isEnglishVideoTitle(title) {
     const langRegex = /\b(Vietnamese|Turkish|Thai|Swahili|Spanish|Español|French|Français|German|Deutsch|Russian|Portuguese|Hindi|Arabic|Italian|Tagalog|Korean|Chinese|Japanese|Farsi|Urdu)\b/i;
     if (langRegex.test(title)) return false;
 
@@ -389,80 +457,188 @@ function isEnglishVideo(item) {
     return true;
 }
 
-async function fetchChannelVideos(playlistId, name, limitType) {
-    const cacheKey = `cache_v2_${playlistId}`;
-    const cachedData = localStorage.getItem(cacheKey);
-    const cacheTime = localStorage.getItem(`${cacheKey}_time`);
+function saveChannelCache(playlistId, items, nextPageToken, timestamp) {
+    const cacheKey = `cache_v3_${playlistId}`;
+    const payload = JSON.stringify({
+        items: items,
+        nextPageToken: nextPageToken || null,
+        timestamp: timestamp || Date.now()
+    });
+    try {
+        localStorage.setItem(cacheKey, payload);
+    } catch (e) {
+        // Evict oldest cache_v3_* entry if iOS Safari 5MB quota is reached
+        for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && k.startsWith('cache_v3_') && k !== cacheKey) {
+                localStorage.removeItem(k);
+                try { localStorage.setItem(cacheKey, payload); } catch (err) {}
+                break;
+            }
+        }
+    }
+}
 
-    if (cachedData && cacheTime && (Date.now() - Number(cacheTime) < 14400000)) {
+async function openChannel(playlistId, name, limitType) {
+    activeSessionId++;
+    const session = activeSessionId;
+
+    const header = document.getElementById('page-title');
+    if (header) header.innerHTML = `<span onclick="showHome()" style="color:#3498db; cursor:pointer;">← Back</span> | ${name}`;
+
+    if (unwatchedToggleBtn) {
+        unwatchedToggleBtn.style.display = 'inline-block';
+        unwatchedToggleBtn.classList.toggle('active', hideWatchedOnly);
+        unwatchedToggleBtn.textContent = hideWatchedOnly ? 'Showing Unwatched' : 'Hide Watched';
+    }
+
+    if (videoList) {
+        videoList.innerHTML = '';
+        videoList.classList.toggle('hide-watched', hideWatchedOnly);
+    }
+
+    // Remove legacy v2 cache if present
+    localStorage.removeItem(`cache_v2_${playlistId}`);
+    localStorage.removeItem(`cache_v2_${playlistId}_time`);
+
+    const cacheKey = `cache_v3_${playlistId}`;
+    const cachedRaw = localStorage.getItem(cacheKey);
+    let cachedObj = null;
+
+    if (cachedRaw) {
         try {
-            renderChannelView(JSON.parse(cachedData), name, limitType);
-            return;
+            const parsed = JSON.parse(cachedRaw);
+            if (parsed && Array.isArray(parsed.items) && (Date.now() - parsed.timestamp < CACHE_TTL_MS)) {
+                cachedObj = parsed;
+            }
         } catch (e) {
             localStorage.removeItem(cacheKey);
-            localStorage.removeItem(`${cacheKey}_time`);
         }
     }
 
-    if (videoList) videoList.innerHTML = `<p style="padding:20px;">Fetching and Auditing ${name}...</p>`;
-    
+    activeChannel = {
+        id: playlistId,
+        name: name,
+        limit: limitType,
+        nextPageToken: cachedObj ? cachedObj.nextPageToken : '',
+        items: cachedObj ? [...cachedObj.items] : [],
+        cacheTimestamp: cachedObj ? cachedObj.timestamp : Date.now(),
+        isFetching: false,
+        exhausted: cachedObj ? !cachedObj.nextPageToken : false
+    };
+
+    if (activeChannel.items.length > 0) {
+        appendVideoCards(activeChannel.items, limitType);
+        updateSentinelStatus();
+        // If user has Hide Watched active and screen has few unwatched cards, pull more immediately
+        if (hideWatchedOnly && activeChannel.nextPageToken) {
+            const visibleCount = videoList.querySelectorAll('.video-card:not(.watched)').length;
+            if (visibleCount < 12) {
+                loadMoreChannelVideos(session);
+            }
+        }
+        return;
+    }
+
+    await loadMoreChannelVideos(session);
+}
+
+async function loadMoreChannelVideos(sessionOverride) {
+    if (!activeChannel || activeChannel.isFetching || activeChannel.exhausted) return;
+    const session = sessionOverride || activeSessionId;
+
+    activeChannel.isFetching = true;
+    if (scrollSentinel) scrollSentinel.textContent = `Loading more ${activeChannel.name} videos...`;
+
     try {
-        let allItems = [];
-        let nextPageToken = '';
+        let newlyApproved = [];
 
-        for (let i = 0; i < MAX_PAGES; i++) {
-            const url = `https://www.googleapis.com/youtube/v3/playlistItems?key=${API_KEY}&playlistId=${playlistId}&part=snippet&maxResults=50${nextPageToken ? `&pageToken=${nextPageToken}` : ''}`;
+        // Keep fetching pages until at least 20 full-length videos are gathered or archive ends
+        while (newlyApproved.length < 20 && !activeChannel.exhausted) {
+            if (session !== activeSessionId) return;
+
+            const tokenParam = activeChannel.nextPageToken ? `&pageToken=${activeChannel.nextPageToken}` : '';
+            const url = `https://www.googleapis.com/youtube/v3/playlistItems?key=${API_KEY}&playlistId=${activeChannel.id}&part=snippet&maxResults=50${tokenParam}`;
             const res = await fetch(url);
-            if (!res.ok) break;
-            
+            if (!res.ok) {
+                activeChannel.exhausted = true;
+                break;
+            }
+
             const data = await res.json();
-            if (data.items) allItems = allItems.concat(data.items);
-            
-            nextPageToken = data.nextPageToken;
-            if (!nextPageToken) break;
-        }
+            const rawItems = data.items || [];
+            activeChannel.nextPageToken = data.nextPageToken || null;
+            if (!activeChannel.nextPageToken) {
+                activeChannel.exhausted = true;
+            }
 
-        if (allItems.length === 0) {
-            if (videoList) videoList.innerHTML = '<p style="padding:20px;">No videos found for this channel.</p>';
-            return;
-        }
+            if (rawItems.length === 0) break;
 
-        const durationMap = {};
-        const videoIds = allItems.map(item => item.snippet.resourceId.videoId);
-        
-        for (let i = 0; i < videoIds.length; i += 50) {
-            const chunk = videoIds.slice(i, i + 50).join(',');
-            const detailsUrl = `https://www.googleapis.com/youtube/v3/videos?key=${API_KEY}&id=${chunk}&part=contentDetails`;
-            const detailsRes = await fetch(detailsUrl);
-            if (!detailsRes.ok) continue;
-            
-            const detailsData = await detailsRes.json();
-            if (detailsData.items) {
-                detailsData.items.forEach(item => {
-                    durationMap[item.id] = parseISO8601Duration(item.contentDetails.duration);
-                });
+            const videoIds = rawItems
+                .map(item => item.snippet?.resourceId?.videoId)
+                .filter(Boolean);
+
+            const durationMap = {};
+            if (videoIds.length > 0) {
+                const detailsUrl = `https://www.googleapis.com/youtube/v3/videos?key=${API_KEY}&id=${videoIds.join(',')}&part=contentDetails`;
+                const detailsRes = await fetch(detailsUrl);
+                if (detailsRes.ok) {
+                    const detailsData = await detailsRes.json();
+                    (detailsData.items || []).forEach(d => {
+                        durationMap[d.id] = parseISO8601Duration(d.contentDetails.duration);
+                    });
+                }
+            }
+
+            for (const item of rawItems) {
+                const vid = item.snippet?.resourceId?.videoId;
+                const title = item.snippet?.title || '';
+                const thumb = item.snippet?.thumbnails?.medium?.url || '';
+                if (!vid || !thumb || title === 'Private video' || title === 'Deleted video') continue;
+
+                const duration = durationMap[vid] || 0;
+                if (duration < 60) continue; // Exclude Shorts
+
+                if (activeChannel.id === 'UUPfldVy-GUtV-0n7n9v_xhg' && !isEnglishVideoTitle(title)) {
+                    continue;
+                }
+
+                // Deduplicate against already loaded items
+                if (!activeChannel.items.some(existing => existing.id === vid)) {
+                    newlyApproved.push({ id: vid, title: title, thumb: thumb });
+                }
             }
         }
 
-        let realVideos = allItems.filter(item => {
-            const duration = durationMap[item.snippet.resourceId.videoId] || 0;
-            return duration >= 60; // Exclude Shorts
-        });
+        if (session !== activeSessionId) return;
 
-        if (playlistId === 'UUPfldVy-GUtV-0n7n9v_xhg') {
-            realVideos = realVideos.filter(isEnglishVideo);
-        }
-
-        if (realVideos.length > 0) {
-            localStorage.setItem(cacheKey, JSON.stringify(realVideos));
-            localStorage.setItem(`${cacheKey}_time`, Date.now().toString());
-            renderChannelView(realVideos, name, limitType);
-        } else {
-            if (videoList) videoList.innerHTML = '<p style="padding:20px;">No matching videos found.</p>';
+        if (newlyApproved.length > 0) {
+            activeChannel.items = activeChannel.items.concat(newlyApproved);
+            saveChannelCache(
+                activeChannel.id,
+                activeChannel.items,
+                activeChannel.nextPageToken,
+                activeChannel.cacheTimestamp
+            );
+            appendVideoCards(newlyApproved, activeChannel.limit);
+        } else if (activeChannel.items.length === 0 && videoList) {
+            videoList.innerHTML = '<p style="padding:20px;">No matching videos found.</p>';
         }
     } catch (e) {
-        console.error("Audit Failure:", e);
-        if (videoList) videoList.innerHTML = '<p style="padding:20px;">System Error: Failed to retrieve video list.</p>';
+        console.error("Catalog Fetch Error:", e);
+        if (scrollSentinel) scrollSentinel.textContent = 'Error loading additional videos.';
+    } finally {
+        if (activeChannel) activeChannel.isFetching = false;
+        updateSentinelStatus();
+    }
+}
+
+function updateSentinelStatus() {
+    if (!scrollSentinel || !activeChannel) return;
+    if (activeChannel.exhausted) {
+        scrollSentinel.textContent = `All ${activeChannel.items.length} videos loaded`;
+    } else {
+        scrollSentinel.textContent = `Showing ${activeChannel.items.length} videos — scroll down for more`;
     }
 }
 
@@ -475,26 +651,45 @@ function parseISO8601Duration(duration) {
     return (hours * 3600) + (minutes * 60) + seconds;
 }
 
-function renderChannelView(videos, name, limitType) {
-    const header = document.getElementById('page-title');
-    if (header) header.innerHTML = `<span onclick="showHome()" style="color:#3498db; cursor:pointer;">← Back</span> | ${name}`;
-    if (videoList) videoList.innerHTML = '';
-    
+function appendVideoCards(videos, limitType) {
+    if (!videoList) return;
+    const watchedSet = getWatchedSet();
+    const fragment = document.createDocumentFragment();
+
     videos.forEach(video => {
-        const videoId = video.snippet.resourceId.videoId;
+        const isWatched = watchedSet.has(video.id);
         const card = document.createElement('div');
-        card.className = 'video-card';
+        card.className = isWatched ? 'video-card watched' : 'video-card';
+        card.dataset.videoId = video.id;
+
         card.innerHTML = `
-            <img class="video-thumb" src="${video.snippet.thumbnails.medium.url}">
-            <div class="video-title">${video.snippet.title}</div>
+            <img class="video-thumb" loading="lazy" src="${video.thumb}">
+            ${isWatched ? '<div class="watched-badge">✓ Watched</div>' : ''}
+            <div class="video-title">${video.title}</div>
         `;
-        card.onclick = () => playVideo(videoId, limitType);
-        if (videoList) videoList.appendChild(card);
+        card.onclick = () => playVideo(video.id, limitType);
+        fragment.appendChild(card);
     });
+
+    videoList.appendChild(fragment);
 }
 
-// Execution Timers
-setInterval(tickWatchTime, 5000); // Record watch time every 5s for timed channels
+// =============================================================
+// INFINITE SCROLL OBSERVER & EXECUTION TIMERS
+// =============================================================
+if (scrollSentinel && 'IntersectionObserver' in window) {
+    const observer = new IntersectionObserver((entries) => {
+        if (entries[0].isIntersecting && activeChannel && !activeChannel.isFetching && !activeChannel.exhausted) {
+            loadMoreChannelVideos();
+        }
+    }, {
+        root: null,
+        rootMargin: '400px' // Pre-fetch 400px before reaching bottom
+    });
+    observer.observe(scrollSentinel);
+}
+
+setInterval(tickWatchTime, 5000); // Record 5s watch time every 5s for timed channels
 setInterval(checkLimits, 10000);   // Check cutoff limits every 10s
-checkLimits();                      // Initial check on load
+checkLimits();                       // Initial check on load
 showHome();
